@@ -1,0 +1,3 @@
+-- geniusai-server
+
+The python backend for LrGeniusAI and possibly others in the future...
