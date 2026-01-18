@@ -2,26 +2,6 @@
 
 block_cipher = None
 
-from PyInstaller.utils.hooks import copy_metadata
-
-# Collect metadata for packages that check their own version at runtime
-datas = [('open_clip', 'open_clip')]
-datas += copy_metadata('tqdm')
-datas += copy_metadata('transformers')
-datas += copy_metadata('tokenizers')
-datas += copy_metadata('huggingface-hub')
-datas += copy_metadata('filelock')
-datas += copy_metadata('numpy')
-datas += copy_metadata('packaging')
-datas += copy_metadata('regex')
-datas += copy_metadata('requests')
-datas += copy_metadata('safetensors')
-datas += copy_metadata('pyyaml')
-datas += copy_metadata('certifi')
-datas += copy_metadata('charset-normalizer')
-datas += copy_metadata('idna')
-datas += copy_metadata('urllib3')
-
 a = Analysis(
     ['src/geniusai_server.py'],
     pathex=['src'],
