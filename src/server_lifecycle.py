@@ -61,20 +61,6 @@ def get_download_status():
     with _download_lock:
         return _download_status
 
-
-def clip_model_is_cached():
-    try:
-        path = snapshot_download(repo_id=IMAGE_MODEL_ID, local_files_only=True)
-        logger.info("CLIP model locally cached.")
-        return True
-    except LocalEntryNotFoundError:
-        logger.info("CLIP model not locally cached.")
-        return False
-    except Exception as e:
-        logger.error(f"Error while checking for local CLIP model: {e}", exc_info=True)
-        return False
-
-
 _download_thread = None
 _download_lock = threading.Lock()
 
@@ -108,6 +94,7 @@ def _download_clip_model_thread():
             repo_id=IMAGE_MODEL_ID,
             tqdm_class=DownloadProgressTracker
         )
+
         with _download_lock:
             _download_status["status"] = "completed"
         logger.info(f"CLIP model downloaded to {path}")
@@ -148,31 +135,29 @@ def load_model():
             _set_last_used()
             return
 
-        if clip_model_is_cached():
+        try:
+            logger.info("Trying to load open_clip model from local cache")
+            model_obj, _, proc = open_clip.create_model_and_transforms(
+                IMAGE_MODEL_ID,
+                pretrained='webli'
+            )
+            tok = open_clip.get_tokenizer(IMAGE_MODEL_ID)
 
             try:
-                logger.info("Trying to load open_clip model from local cache")
-                model_obj, _, proc = open_clip.create_model_and_transforms(
-                    IMAGE_MODEL_ID,
-                    pretrained='webli'
-                )
-                tok = open_clip.get_tokenizer(IMAGE_MODEL_ID)
-
-                try:
-                    model_obj.to(TORCH_DEVICE)
-                    logger.info(f"Text and vision model moved to {TORCH_DEVICE}")
-                except Exception as e:
-                    logger.warning(f"Failed to move text and vision model to {TORCH_DEVICE}: {e}.")
-
-                model = model_obj
-                processor = proc
-                tokenizer = tok
-
-                _set_last_used()
-                logger.info("Loaded OpenCLIP model (lazy)")
+                model_obj.to(TORCH_DEVICE)
+                logger.info(f"Text and vision model moved to {TORCH_DEVICE}")
             except Exception as e:
-                logger.error(f"Failed to load OpenCLIP model (lazy): {e}", exc_info=True)
-                raise
+                logger.warning(f"Failed to move text and vision model to {TORCH_DEVICE}: {e}.")
+
+            model = model_obj
+            processor = proc
+            tokenizer = tok
+
+            _set_last_used()
+            logger.info("Loaded OpenCLIP model (lazy)")
+        except Exception as e:
+            logger.error(f"Failed to load OpenCLIP model (lazy): {e}", exc_info=True)
+            raise
         
         else:
             logger.warning("Cannot load CLIP model, as it is not yet downloaded.")
