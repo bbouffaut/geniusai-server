@@ -39,7 +39,9 @@ elif sys.platform == "win32":  # Windows
 
 
 
-IMAGE_MODEL_ID = "timm/ViT-SO400M-16-SigLIP2-384"
+CLIP_MODEL_NAME="ViT-SO400M-16-SigLIP2-384"
+IMAGE_MODEL_ID = "timm/" + CLIP_MODEL_NAME
+
 LLM_BATCH_SIZE = 3  # Optimized batch size for better performance
 LLM_TEMPERATURE = 0.2  # Reduced for faster, more deterministic responses
 

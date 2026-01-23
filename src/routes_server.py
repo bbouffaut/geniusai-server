@@ -79,10 +79,8 @@ def clip_cached():
     try:
         model = get_model()
         if model:
-            logger.info(f"CLIP model loaded: {model}")
             return jsonify({"clip": "ready", "message": "CLIP model is loaded and ready."})
         else:
-            logger.info("CLIP model not loaded.")
             return jsonify({"clip": "not_ready", "message": "CLIP model is not loaded."})           
         
     except Exception as e:

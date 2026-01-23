@@ -1,7 +1,7 @@
 import os
 import time
 import signal
-from config import DB_PATH, logger, IMAGE_MODEL_ID, TORCH_DEVICE
+from config import DB_PATH, logger, IMAGE_MODEL_ID, CLIP_MODEL_NAME, TORCH_DEVICE
 import sys
 import open_clip
 import threading
@@ -9,8 +9,7 @@ import datetime
 import gc
 import torch
 from tqdm import tqdm
-from huggingface_hub import HfApi, snapshot_download
-from huggingface_hub.utils import LocalEntryNotFoundError
+from huggingface_hub import HfApi, snapshot_download, hf_hub_download
 
 # Lazy-loadable global model instances
 # model, processor and tokenizer start as None and will be loaded on first use.
@@ -41,20 +40,19 @@ class DownloadProgressTracker(tqdm):
         kwargs.pop('name', None)
         super().__init__(*args, **kwargs, file=open(os.devnull, 'w'))
         # We only care about byte-level progress
-        if self.unit == 'B':
-            with _download_lock:
-                # Set the total for the status, this might be called multiple times
-                # but it is fine. The final value in _download_status will be from the
-                # _download_clip_model_thread function.
-                _download_status["total"] = DownloadProgressTracker.total_size
-                _download_status["unit"] = "B"
+
+        with _download_lock:
+            # Set the total for the status, this might be called multiple times
+            # but it is fine. The final value in _download_status will be from the
+            # _download_clip_model_thread function.
+            _download_status["total"] = DownloadProgressTracker.total_size
+            _download_status["unit"] = "B"
 
     def update(self, n=1):
         super().update(n)
-        if self.unit == 'B':
-            with _download_lock:
-                DownloadProgressTracker.bytes_downloaded += n
-                _download_status["progress"] = DownloadProgressTracker.bytes_downloaded
+        with _download_lock:
+            DownloadProgressTracker.bytes_downloaded += n
+            _download_status["progress"] = DownloadProgressTracker.bytes_downloaded
 
 
 def get_download_status():
@@ -137,30 +135,57 @@ def load_model():
 
         try:
             logger.info("Trying to load open_clip model from local cache")
-            model_obj, _, proc = open_clip.create_model_and_transforms(
-                IMAGE_MODEL_ID,
-                pretrained='webli'
-            )
-            tok = open_clip.get_tokenizer(IMAGE_MODEL_ID)
 
             try:
-                model_obj.to(TORCH_DEVICE)
-                logger.info(f"Text and vision model moved to {TORCH_DEVICE}")
+                cached_model_file = hf_hub_download(
+                    repo_id=IMAGE_MODEL_ID,
+                    filename="open_clip_model.safetensors",
+                    local_files_only=True
+                )
+
+                cached_model_dir = os.path.dirname(cached_model_file)
+
+                logger.info(f"Checking for cached model at: {cached_model_dir}")
+                
+                # Check if local model directory exists (production/bundled scenario)
+                if os.path.isdir(cached_model_dir):
+                    # Verify model files exist
+                    config_file = os.path.join(cached_model_dir, 'open_clip_config.json')
+                    weights_file = os.path.join(cached_model_dir, 'open_clip_model.safetensors')
+
+                    if os.path.isfile(config_file) and os.path.isfile(weights_file):
+                        local_model_uri = f"local-dir:{cached_model_dir}"
+                        logger.info(f"Loading OpenCLIP model from bundled directory: {cached_model_dir}")
+                        model_obj, _, proc = open_clip.create_model_and_transforms(
+                            local_model_uri,
+                            pretrained=None
+                        )
+                        tok = open_clip.get_tokenizer(local_model_uri)
+                        _set_last_used()
+                        logger.info("Loaded OpenCLIP model (lazy)")
+                    else:
+                        logger.warning(f"Bundled model directory exists but required files missing")
+                        logger.warning(f"Config file exists: {os.path.isfile(config_file)}")
+                        logger.warning(f"Weights file exists: {os.path.isfile(weights_file)}")
+                        raise FileNotFoundError("Bundled model files incomplete")
+
+                    try:
+                        model_obj.to(TORCH_DEVICE)
+                        logger.info(f"Text and vision model moved to {TORCH_DEVICE}")
+                    except Exception as e:
+                        logger.warning(f"Failed to move text and vision model to {TORCH_DEVICE}: {e}.")
+
+                    model = model_obj
+                    processor = proc
+                    tokenizer = tok
+
             except Exception as e:
-                logger.warning(f"Failed to move text and vision model to {TORCH_DEVICE}: {e}.")
+                logger.warning("OpenCLIP model not found in local cache. Please download the model first, if you want to use it.")
 
-            model = model_obj
-            processor = proc
-            tokenizer = tok
-
-            _set_last_used()
-            logger.info("Loaded OpenCLIP model (lazy)")
         except Exception as e:
             logger.error(f"Failed to load OpenCLIP model (lazy): {e}", exc_info=True)
             raise
-        
-        else:
-            logger.warning("Cannot load CLIP model, as it is not yet downloaded.")
+
 
 
 def unload_model():
