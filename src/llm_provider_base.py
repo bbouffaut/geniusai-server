@@ -5,6 +5,8 @@ import base64
 from PIL import Image
 import io
 
+from config import ALT_TEXT_PROMPT_ADDON, BASE_PROMPT, CAPTION_TEXT_PROMPT_ADDON, KEYWORDS_TEXT_PROMPT_ADDON, LANGUAGE_TEXT_INSTRUCTION_ADDON, TITLE_TEXT_PROMPT_ADDON
+
 
 # Import prompts from config
 try:
@@ -221,22 +223,22 @@ class LLMProviderBase(ABC):
             base_prompt = request.user_prompt
         else:
             # Default task prompt
-            base_prompt = "Analyze the uploaded photo and generate the following data:\n"
+            base_prompt = BASE_PROMPT
             
             if request.generate_alt_text:
-                base_prompt += "* Alt text (with context for screen readers)\n"
+                base_prompt += ALT_TEXT_PROMPT_ADDON
             
             if request.generate_caption:
-                base_prompt += "* Image caption\n"
+                base_prompt += CAPTION_TEXT_PROMPT_ADDON
             
             if request.generate_title:
-                base_prompt += "* Image title\n"
+                base_prompt += TITLE_TEXT_PROMPT_ADDON
             
             if request.generate_keywords:
-                base_prompt += "* the 5 Keywords with the most accuracy\n"
+                base_prompt += KEYWORDS_TEXT_PROMPT_ADDON
         
         # Add language instruction
-        base_prompt += f"\n\nAll results should be generated in {request.language}."
+        base_prompt += LANGUAGE_TEXT_INSTRUCTION_ADDON % (request.language)
         
         # Add contextual information if provided and enabled
         context_additions = []

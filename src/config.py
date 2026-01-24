@@ -73,6 +73,14 @@ METADATA_GENERATION_USER_PROMPT_TEMPLATE = """Analyze the uploaded photo and gen
 
 All results should be generated in {language}."""
 
+BASE_PROMPT = "Analyze the uploaded photo and generate the following data:\n"
+ALT_TEXT_PROMPT_ADDON = "* Alt text (with context for screen readers)\n"
+CAPTION_TEXT_PROMPT_ADDON = "* Image caption\n"
+TITLE_TEXT_PROMPT_ADDON = "* Image title\n"
+KEYWORDS_TEXT_PROMPT_ADDON = "* the 5 most pertinent Keywords\n"
+LANGUAGE_TEXT_INSTRUCTION_ADDON = "\n\nAll results should be generated in %s."
+
+
 # --- LLM Provider Configuration ---
 # Environment variables or default values for external LLM providers
 
