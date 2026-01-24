@@ -233,7 +233,7 @@ class LLMProviderBase(ABC):
                 base_prompt += "* Image title\n"
             
             if request.generate_keywords:
-                base_prompt += "* Keywords\n"
+                base_prompt += "* the 5 Keywords with the most accuracy\n"
         
         # Add language instruction
         base_prompt += f"\n\nAll results should be generated in {request.language}."
