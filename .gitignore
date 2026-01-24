@@ -23,8 +23,5 @@ lrgenius-server.log
 lrgenius-server.OK
 lrgenius-server.pid
 
-run.sh
-run.bat
-
 #Ignore cursor AI rules
 .cursor/rules/codacy.mdc
