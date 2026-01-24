@@ -5,11 +5,16 @@ export KMP_DUPLICATE_LIB_OK=TRUE
 
 DB_PATH="/Volumes/Extreme SSD/Lightroom Plugins/lrgeniusAI-data/lrgenius.db"
 FETCH_MODELS_FLAG=""
+DEBUG_FLAG=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --fetch-models)
       FETCH_MODELS_FLAG="--fetch-models"
+      shift
+      ;;
+    --debug)
+      DEBUG_FLAG="--debug"
       shift
       ;;
     --db-path)
@@ -54,4 +59,4 @@ ensure_db_path_writable() {
 
 ensure_db_path_writable "$DB_PATH"
 
-uv run python src/geniusai_server.py --db-path "$DB_PATH" $FETCH_MODELS_FLAG
+uv run python src/geniusai_server.py --db-path "$DB_PATH" $FETCH_MODELS_FLAG $DEBUG_FLAG

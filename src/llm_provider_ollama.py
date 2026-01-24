@@ -80,6 +80,8 @@ class OllamaProvider(LLMProviderBase):
             user_prompt = self._prepare_user_prompt(request)
             response_schema = self._prepare_response_structure(request)
 
+            logger.debug(f'system_prompt = ${json(system_prompt)} / user_prompt=${json(user_prompt)} / response_schema=${json(response_schema)}')
+
             model_to_use = request.model
             logger.info(f"[Ollama] Using model: {model_to_use}")
 
