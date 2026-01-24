@@ -18,6 +18,7 @@ dependencies = [
   "pyinstaller",
   "requests",
   "rich",
+  "transformers>=4.57.6",
   "waitress",
 ]
 
