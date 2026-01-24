@@ -14,5 +14,6 @@ uv run python src/geniusai_server.py
 macOS/Linux:
 
 ```bash
-./run.sh
+./run.sh --fetch-models #populate cache with models
+./run.sh #load models from cache, assuming this is present
 ```

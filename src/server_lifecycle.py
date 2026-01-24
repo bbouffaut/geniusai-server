@@ -1,14 +1,14 @@
 import os
 import time
 import signal
-from config import DB_PATH, logger, IMAGE_MODEL_ID, TORCH_DEVICE
+from config import DB_PATH, logger, IMAGE_MODEL_ID, TORCH_DEVICE, FETCH_MODELS
 import open_clip
 import threading
 import datetime
 import gc
 import torch
 import tqdm
-from huggingface_hub import snapshot_download, HfApi, hf_hub_download
+from huggingface_hub import snapshot_download, HfApi
 
 
 # Lazy-loadable global model instances
@@ -148,16 +148,13 @@ def load_model():
             return
 
         try:
-            logger.info("Trying to load open_clip model from local cache")
+            logger.info("Trying to load open_clip model from cache")
 
             try:
-                cached_model_file = hf_hub_download(
+                cached_model_dir = snapshot_download(
                     repo_id=IMAGE_MODEL_ID,
-                    filename="open_clip_model.safetensors",
-                    local_files_only=True
+                    local_files_only=not FETCH_MODELS,
                 )
-
-                cached_model_dir = os.path.dirname(cached_model_file)
 
                 logger.info(f"Checking for cached model at: {cached_model_dir}")
                 
@@ -194,7 +191,15 @@ def load_model():
                     tokenizer = tok
 
             except Exception as e:
-                logger.warning(f"Failed to load OpenCLIP model from local cache. This can happen if the model is not fully downloaded, is corrupted, or if there is a configuration issue. The error was: {e}", exc_info=True)
+                if FETCH_MODELS:
+                    logger.warning(f"Failed to load OpenCLIP model from cache or download. This can happen if the model is not fully downloaded, is corrupted, or if there is a configuration issue. The error was: {e}", exc_info=True)
+                else:
+                    logger.warning(
+                        "Failed to load OpenCLIP model from local cache. If the model has not been downloaded yet, "
+                        "start the server with --fetch-models to enable downloading. "
+                        f"The error was: {e}",
+                        exc_info=True
+                    )
 
         except Exception as e:
             logger.error(f"Failed to load OpenCLIP model (lazy): {e}", exc_info=True)
