@@ -45,8 +45,11 @@ def add_image(uuid, embedding, metadata):
             # The collection expects 1152-dimensional embeddings (from vision model)
             dummy_embedding = np.zeros(1152, dtype=np.float32).tolist()
             collection.add(embeddings=[dummy_embedding], metadatas=[metadata], ids=[uuid])
+            logger.debug(f"image {uuid} with NO Embeddings is well ADDED in collection. Metadata = {metadata}")
         else:
             collection.add(embeddings=[embedding], metadatas=[metadata], ids=[uuid])
+            logger.debug(f"image {uuid} with Embeddings is well ADDED in collection. Metadata = {metadata}")
+
     except Exception as e:
         # Surface a helpful log message and re-raise so callers can decide what to do.
         logger.error(f"Failed to add image {uuid} to ChromaDB (embedding provided: {embedding is not None}): {e}", exc_info=True)
@@ -57,13 +60,19 @@ def update_image(uuid, metadata, embedding=None):
     _ensure_initialized()
     if embedding is not None:
         collection.update(ids=[uuid], metadatas=[metadata], embeddings=[embedding])
+        logger.debug(f"image {uuid} with Embeddings is well UPDATED in collection. Metadata = {metadata}")
     else:
         collection.update(ids=[uuid], metadatas=[metadata])
+        logger.debug(f"image {uuid} with NO Embeddings is well UPDATED in collection. Metadata = {metadata}")
+
 
 
 def get_image(uuid):
     _ensure_initialized()
-    return collection.get(ids=[uuid], include=['metadatas', 'embeddings'])
+    result = collection.get(ids=[uuid], include=['metadatas', 'embeddings'])
+    if not result or not result.get('ids'):
+        return None
+    return result
 
 
 def delete_image(uuid):
@@ -151,4 +160,3 @@ def get_db_stats():
         "num_rated_aesthetic": aesthetic_rated_count,
         "num_with_capture_time": capture_time_count,
     }
-

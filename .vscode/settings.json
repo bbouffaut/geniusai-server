@@ -1,0 +1,11 @@
+{
+    "sqltools.useNodeRuntime": true,
+    "sqltools.connections": [
+        {
+            "previewLimit": 50,
+            "driver": "SQLite",
+            "name": "genius-server",
+            "database": "/Volumes/Extreme SSD/Lightroom Plugins/lrgeniusAI-data/lrgenius.db/chroma.sqlite3"
+        }
+    ]
+}
