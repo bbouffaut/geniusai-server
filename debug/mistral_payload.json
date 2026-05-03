@@ -1,0 +1,150 @@
+{
+    "model": "mistral-small-latest",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are a professional photography analyst with expertise in describing photos with precise words. You also try to identify famous buildings as well as the location where the photo was taken. You only provide the information when and only when this is famous and you are 100% sure. Furthermore, you aim to specify animal and plant species as accurately as possible when possible. Again, you return it only when you are 100% sure. Keep the description factuals and simple. The description is here to be used in semantic search. So no need to add poetry or so. Only facts that will help the semantic search."
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Analyze the uploaded photo and generate the following data:\n* Alt text (with context for screen readers)\n* Image caption\n* Image title\n* the 5 most pertinent Keywords\n\n\nAll results should be generated in French.\n\nPlease organize keywords into these categories: Activities, Animals, Buildings, Companies, Location, Moods, Objects, People, Plants, Sceneries, Texts, Vehicles, Weather"
+          },
+          {
+            "type": "image_url",
+            "image_url": "data:image/jpeg;base64,<base64 image omitted; 10176432 chars>"
+          }
+        ]
+      }
+    ],
+    "response_format": {
+      "type": "json_schema",
+      "json_schema": {
+        "name": "metadata_response",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string"
+            },
+            "caption": {
+              "type": "string"
+            },
+            "alt_text": {
+              "type": "string"
+            },
+            "keywords": {
+              "type": "object",
+              "properties": {
+                "Activities": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "Animals": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "Buildings": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "Companies": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "Location": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "Moods": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "Objects": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "People": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "Plants": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "Sceneries": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "Texts": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "Vehicles": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "Weather": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "Activities",
+                "Animals",
+                "Buildings",
+                "Companies",
+                "Location",
+                "Moods",
+                "Objects",
+                "People",
+                "Plants",
+                "Sceneries",
+                "Texts",
+                "Vehicles",
+                "Weather"
+              ]
+            }
+          },
+          "required": [
+            "title",
+            "caption",
+            "alt_text",
+            "keywords"
+          ],
+          "additionalProperties": false
+        },
+        "strict": true
+      }
+    },
+    "temperature": 0.0
+  }
