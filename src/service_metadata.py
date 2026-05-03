@@ -16,6 +16,7 @@ from llm_provider_ollama import OllamaProvider
 from llm_provider_lmstudio import LMStudioProvider
 from llm_provider_chatgpt import ChatGPTProvider
 from llm_provider_gemini import GeminiProvider
+from llm_provider_mistral import MistralProvider
 from config import logger, DEFAULT_METADATA_PROVIDER, DEFAULT_METADATA_LANGUAGE, DEFAULT_KEYWORD_CATEGORIES
 from PIL import Image, ExifTags
 import io
@@ -106,6 +107,17 @@ class AnalysisService:
                 logger.info("○ Gemini provider registered (API key not configured, can be provided later)")
         except Exception as e:
             logger.error(f"✗ Failed to initialize Gemini provider: {e}")
+
+        # Mistral (cloud) - Always add to providers, API key can be provided later
+        try:
+            mistral = MistralProvider({})
+            self.providers['mistral'] = mistral
+            if mistral.is_available():
+                logger.info("✓ Mistral provider initialized")
+            else:
+                logger.info("○ Mistral provider registered (API key not configured, can be provided later)")
+        except Exception as e:
+            logger.error(f"✗ Failed to initialize Mistral provider: {e}")
         
         if not self.providers:
             logger.error("⚠️  No LLM providers available! Metadata generation will not work.")
@@ -356,7 +368,12 @@ class AnalysisService:
             logger.error(f"Unexpected error during quality scoring for {uuid}: {e}", exc_info=True)
             return QualityScoreResponse(uuid=uuid, success=False, error=str(e))
 
-    def get_available_models(self, openai_apikey: Optional[str] = None, gemini_apikey: Optional[str] = None) -> Dict[str, List[str]]:
+    def get_available_models(
+        self,
+        openai_apikey: Optional[str] = None,
+        gemini_apikey: Optional[str] = None,
+        mistral_apikey: Optional[str] = None,
+    ) -> Dict[str, List[str]]:
         """
         Return all available multimodal (vision-capable) models from all providers.
         """
@@ -367,6 +384,8 @@ class AnalysisService:
                     provider_instance.api_key = openai_apikey
                 if provider_name == 'gemini' and gemini_apikey:
                     provider_instance.api_key = gemini_apikey
+                if provider_name == 'mistral' and mistral_apikey:
+                    provider_instance.api_key = mistral_apikey
                 
                 if provider_name in ['ollama', 'lmstudio'] and not provider_instance.is_available():
                     result[provider_name] = []

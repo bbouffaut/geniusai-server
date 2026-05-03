@@ -23,3 +23,4 @@ macOS/Linux:
 ### Models selection
 - is done at the client side
 - Default is ollama -> Needs to have a ollama listening locally on 11434 port
+- Cloud providers can receive their API key per request through `api_key`; `/models` also accepts provider-specific keys such as `openai_apikey`, `gemini_apikey`, and `mistral_apikey`.

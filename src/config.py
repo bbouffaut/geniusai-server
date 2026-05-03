@@ -96,6 +96,7 @@ DEFAULT_KEYWORD_CATEGORIES = [
 
 LMSTUDIO_HOST = "localhost:1234"
 OLLAMA_BASE_URL = "http://localhost:11434"
+MISTRAL_BASE_URL = "https://api.mistral.ai/v1"
 
 # --- Logger Setup ---
 LOG_PATH = os.path.join(os.path.dirname(DB_PATH), "lrgenius-server.log")

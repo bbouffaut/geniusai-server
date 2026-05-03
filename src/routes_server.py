@@ -37,7 +37,8 @@ def list_models():
     
     POST JSON: { 
         openai_apikey?: str,  # Optional OpenAI API key for ChatGPT models
-        gemini_apikey?: str   # Optional Gemini API key for Gemini models
+        gemini_apikey?: str,  # Optional Gemini API key for Gemini models
+        mistral_apikey?: str  # Optional Mistral API key for Mistral models
     }
     
     Returns: {
@@ -46,7 +47,8 @@ def list_models():
             "ollama": [...],
             "lmstudio": [...],
             "chatgpt": [...],
-            "gemini": [...]
+            "gemini": [...],
+            "mistral": [...]
         }
     }
     """
@@ -55,10 +57,12 @@ def list_models():
         data = request.get_json(silent=True) or {}
         openai_apikey = data.get('openai_apikey')
         gemini_apikey = data.get('gemini_apikey')
+        mistral_apikey = data.get('mistral_apikey')
     else:
         # Support GET for backward compatibility
         openai_apikey = request.args.get('openai_apikey')
         gemini_apikey = request.args.get('gemini_apikey')
+        mistral_apikey = request.args.get('mistral_apikey')
 
     logger.info("Models request received - checking all providers")
     
@@ -67,7 +71,8 @@ def list_models():
         # This will dynamically re-check Ollama and LM Studio availability
         models = get_analysis_service().get_available_models(
             openai_apikey=openai_apikey,
-            gemini_apikey=gemini_apikey
+            gemini_apikey=gemini_apikey,
+            mistral_apikey=mistral_apikey,
         )
         return jsonify({"models": models})
     except Exception as e:
@@ -109,4 +114,3 @@ def download_clip_model_status():
         logger.error(f"Error while getting download status for CLIP model: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
         
-
