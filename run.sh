@@ -7,6 +7,7 @@ DB_PATH="/Volumes/Extreme SSD/Lightroom Plugins/lrgeniusAI-data/lrgenius.db"
 MODEL_CACHE_PATH=""
 FETCH_MODELS_FLAG=""
 DEBUG_FLAG=""
+PRELOAD_MODELS_FLAG="--preload-models"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -16,6 +17,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --debug)
       DEBUG_FLAG="--debug"
+      shift
+      ;;
+    --preload-models)
+      PRELOAD_MODELS_FLAG="--preload-models"
+      shift
+      ;;
+    --lazy-load-models)
+      PRELOAD_MODELS_FLAG=""
       shift
       ;;
     --db-path)
@@ -99,6 +108,10 @@ fi
 
 if [[ -n "$DEBUG_FLAG" ]]; then
   cmd+=("$DEBUG_FLAG")
+fi
+
+if [[ -n "$PRELOAD_MODELS_FLAG" ]]; then
+  cmd+=("$PRELOAD_MODELS_FLAG")
 fi
 
 if [[ -n "$MODEL_CACHE_PATH" ]]; then

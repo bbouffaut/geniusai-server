@@ -5,7 +5,7 @@ from waitress import serve
 import datetime
 
 # Import modularized components
-from config import logger, args
+from config import logger, args, PRELOAD_MODELS
 logger.info("Imported config")
 
 # Lazy import server_lifecycle to speed up startup
@@ -38,6 +38,18 @@ if __name__ == "__main__":
     logger.info(f"Python: {sys.version.split()[0]}")
     logger.info(f"Database: {args.db_path}")
     logger.info("=" * 60)
+
+    should_preload_models = PRELOAD_MODELS and (
+        not args.debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true"
+    )
+
+    if should_preload_models:
+        logger.info("Preloading embedding model before accepting requests...")
+        model = server_lifecycle.get_model()
+        if model is None:
+            logger.warning("Embedding model preload did not complete; semantic features will retry on first use.")
+        else:
+            logger.info("Embedding model preloaded")
     
     # Mark server as ready for startup scripts
     server_lifecycle.write_ok_file()
@@ -52,7 +64,10 @@ if __name__ == "__main__":
             app.run(debug=True, host="127.0.0.1", port=19819)
         else:
             logger.info("Starting production server on http://127.0.0.1:19819")
-            logger.info("Heavy modules (ChromaDB, AI models) will load on first request")
+            if PRELOAD_MODELS:
+                logger.info("Embedding model preloaded; ChromaDB will load on first request")
+            else:
+                logger.info("Heavy modules (ChromaDB, AI models) will load on first request")
             serve(app, host="127.0.0.1", port=19819, threads=4)
     finally:
         logger.info("Shutting down server...")
