@@ -4,7 +4,7 @@ from collections import deque
 import os
 
 import service_chroma as chroma_service
-from config import logger
+from config import DEFAULT_METADATA_LANGUAGE, logger
 from service_index import process_image_task
 import base64
 import json
@@ -25,7 +25,7 @@ def _extract_options(data):
     options['provider'] = data.get('provider')
     options['model'] = data.get('model')
     options['api_key'] = data.get('api_key')
-    options['language'] = data.get('language', 'German')
+    options['language'] = data.get('language', DEFAULT_METADATA_LANGUAGE)
     options['temperature'] = float(data.get('temperature', 0.2))
     options['max_tokens'] = data.get('max_tokens')
     options['generate_keywords'] = str(data.get('generate_keywords', 'true')).lower() == 'true'
