@@ -17,3 +17,7 @@ macOS/Linux:
 ./run.sh --fetch-models #populate cache with models
 ./run.sh #load models from cache, assuming this is present
 ```
+
+### Models selection
+- is done at the client side
+- Default is ollama -> Needs to have a ollama listening locally on 11434 port
