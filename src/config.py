@@ -40,19 +40,27 @@ if sys.platform == "darwin":  # macOS
     TORCH_DEVICE = "mps" if torch.backends.mps.is_available() else "cpu"
 elif sys.platform == "win32":  # Windows
     TORCH_DEVICE = "cpu"
+else:  # Linux and other Unix-like platforms
+    TORCH_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 
 
-CLIP_MODEL_NAME="ViT-SO400M-16-SigLIP2-384"
-IMAGE_MODEL_ID = "timm/" + CLIP_MODEL_NAME
+TEXT_EMBEDDING_MODEL_ID = "Qwen/Qwen3-Embedding-0.6B"
+TEXT_EMBEDDING_DIMENSION = 1024
+TEXT_EMBEDDING_QUERY_INSTRUCTION = "Given a photo metadata search query, retrieve relevant photo metadata records"
+TEXT_EMBEDDING_MAX_LENGTH = 8192
+
+# Legacy names kept for compatibility with older scripts/imports.
+CLIP_MODEL_NAME = TEXT_EMBEDDING_MODEL_ID
+IMAGE_MODEL_ID = TEXT_EMBEDDING_MODEL_ID
 
 LLM_BATCH_SIZE = 3  # Optimized batch size for better performance
 LLM_TEMPERATURE = 0.2  # Reduced for faster, more deterministic responses
 
 # --- Search Settings ---
-# Cosine similarity threshold for normalized text/image embeddings.
+# Cosine similarity threshold for normalized query/metadata text embeddings.
 # Clients can override this per request with min_pertinence_score.
-DEFAULT_MIN_PERTINENCE_SCORE = 0.2
+DEFAULT_MIN_PERTINENCE_SCORE = 0.35
 
 # --- Prompts for Quality Scoring ---
 # Optimized prompts for faster processing and better JSON compliance

@@ -1,10 +1,10 @@
+import json
 import numpy as np
+import unicodedata
 
 import service_chroma as chroma_service
-from config import DEFAULT_MIN_PERTINENCE_SCORE, logger, TORCH_DEVICE
+from config import DEFAULT_MIN_PERTINENCE_SCORE, logger
 import server_lifecycle as server_lifecycle
-import torch
-import torch.nn.functional as F
 
 
 def _clamp_score(score):
@@ -22,7 +22,7 @@ def _score_from_distance(distance):
 
 
 def _score_from_embedding(query_embedding, result_embedding, distance):
-    """Returns a 0..1 pertinence score for normalized text/image embeddings."""
+    """Returns a 0..1 pertinence score for normalized text metadata embeddings."""
     if result_embedding is None:
         return _score_from_distance(distance)
 
@@ -55,6 +55,29 @@ def _first_result_group(results, key):
         return group
     except TypeError:
         return []
+
+
+def _normalize_search_text(value):
+    normalized = unicodedata.normalize("NFKD", str(value).lower())
+    return "".join(char for char in normalized if not unicodedata.combining(char))
+
+
+def _metadata_value_to_search_text(value):
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped and stripped[0] in "[{":
+            try:
+                return _metadata_value_to_search_text(json.loads(stripped))
+            except json.JSONDecodeError:
+                return stripped
+        return stripped
+    if isinstance(value, dict):
+        return " ".join(_metadata_value_to_search_text(item) for item in value.values())
+    if isinstance(value, list):
+        return " ".join(_metadata_value_to_search_text(item) for item in value)
+    return str(value)
 
 
 def _transform_and_sort_results(results, quality_sort, query_embedding, min_pertinence_score):
@@ -105,17 +128,11 @@ def search_images(term, quality_sort, uuids_to_search, min_pertinence_score=DEFA
         f"min_pertinence_score: {min_pertinence_score})"
     )
 
-    # 1. Semantic Search
-    tokenizer = server_lifecycle.get_tokenizer()
-    if tokenizer:
-        text_tokens = tokenizer(term).to(TORCH_DEVICE)
-        with torch.no_grad():
-            model = server_lifecycle.get_model()
-            text_features = model.encode_text(text_tokens)
-            normalized_embeddings = F.normalize(text_features, p=2, dim=1).cpu().numpy()[0]
-
+    # 1. Semantic search over metadata text embeddings
+    query_embedding = server_lifecycle.embed_query(term)
+    if query_embedding is not None:
         db_results = chroma_service.query_images(
-            query_embedding=normalized_embeddings,
+            query_embedding=query_embedding,
             n_results=300,
             where_clause={"uuid": {"$in": uuids_to_search}} if uuids_to_search else None,
             include_embeddings=True,
@@ -124,18 +141,17 @@ def search_images(term, quality_sort, uuids_to_search, min_pertinence_score=DEFA
         sorted_semantic_results = _transform_and_sort_results(
             db_results,
             quality_sort,
-            normalized_embeddings,
+            query_embedding,
             min_pertinence_score,
         )
         semantic_uuids = {res['uuid'] for res in sorted_semantic_results}
     else:
-        logger.info("CLIP model not loaded, skipping semantic search.")
+        logger.info("Text embedding model not loaded, skipping semantic metadata search.")
         sorted_semantic_results = []
         semantic_uuids = set()
 
     # 2. Metadata Search (in-memory)
-    logger.info("Performing metadata search in-memory. This may be slow for large databases without a UUID filter.")
-    search_fields = ["flattened_keywords", "alt_text", "caption", "title"]
+    logger.info("Performing exact metadata search in-memory. This may be slow for large databases without a UUID filter.")
 
     if uuids_to_search:
         target_uuids = list(uuids_to_search)
@@ -144,18 +160,16 @@ def search_images(term, quality_sort, uuids_to_search, min_pertinence_score=DEFA
         all_metadata_raw = chroma_service.get_image_metadatas()
 
     metadata_uuids = set()
-    term_lower = term.lower()
+    normalized_term = _normalize_search_text(term)
 
     for i, uuid in enumerate(all_metadata_raw['ids']):
         metadata = all_metadata_raw['metadatas'][i]
         if not metadata:
             continue
 
-        for field in search_fields:
-            if field in metadata and metadata[field] is not None:
-                if term_lower in str(metadata[field]).lower():
-                    metadata_uuids.add(uuid)
-                    break
+        metadata_text = _metadata_value_to_search_text(metadata)
+        if normalized_term in _normalize_search_text(metadata_text):
+            metadata_uuids.add(uuid)
 
     # 3. Combine results
     for result in sorted_semantic_results:

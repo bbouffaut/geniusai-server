@@ -1,4 +1,4 @@
-from config import logger
+from config import TEXT_EMBEDDING_MODEL_ID, logger
 import service_chroma as chroma_service
 from service_metadata import get_analysis_service
 import server_lifecycle as server_lifecycle
@@ -53,6 +53,63 @@ def _flatten_keywords(keywords):
     
     return ""
 
+
+_NON_SEARCHABLE_METADATA_KEYS = {
+    "uuid",
+    "provider",
+    "model",
+    "run_date",
+    "has_embedding",
+    "embedding_model",
+    "embedding_source",
+    "metadata_search_text",
+}
+
+
+def _metadata_value_to_text(value):
+    if value is None:
+        return ""
+
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return ""
+
+        if stripped[0] in "[{":
+            try:
+                return _metadata_value_to_text(json.loads(stripped))
+            except json.JSONDecodeError:
+                return stripped
+
+        return stripped
+
+    if isinstance(value, list):
+        return ", ".join(filter(None, (_metadata_value_to_text(item) for item in value)))
+
+    if isinstance(value, dict):
+        entries = []
+        for key, nested_value in value.items():
+            nested_text = _metadata_value_to_text(nested_value)
+            if nested_text:
+                entries.append(f"{key}: {nested_text}")
+        return "; ".join(entries)
+
+    return str(value)
+
+
+def _build_metadata_embedding_document(metadata):
+    """Build a searchable text document from the metadata stored for a photo."""
+    parts = []
+    for key in sorted(metadata.keys()):
+        if key in _NON_SEARCHABLE_METADATA_KEYS or key.startswith("_"):
+            continue
+
+        value_text = _metadata_value_to_text(metadata.get(key))
+        if value_text:
+            parts.append(f"{key.replace('_', ' ')}: {value_text}")
+
+    return "\n".join(parts)
+
 def process_image_task(
     image_triplets: list[tuple[bytes, str, str]], 
     options: dict
@@ -79,6 +136,8 @@ def process_image_task(
         compute_embeddings = options.get('compute_embeddings', True)
         compute_metadata = options.get('compute_metadata', False)
         compute_quality = options.get('compute_quality', True)
+        if compute_embeddings:
+            compute_metadata = True
 
         logger.info(f"Starting batch processing of {total_images} images...")
         logger.info(f"regenerate_metadata={regenerate_metadata}, compute_embeddings={compute_embeddings}, "
@@ -102,7 +161,12 @@ def process_image_task(
             existing = existing_records.get(uuid, {})
             
             # Check if embedding is needed
-            needs_embedding = compute_embeddings and (regenerate_metadata or not existing.get('has_embedding', False))
+            needs_embedding = compute_embeddings and (
+                regenerate_metadata
+                or not existing.get('has_embedding', False)
+                or existing.get('embedding_source') != 'metadata'
+                or existing.get('embedding_model') != TEXT_EMBEDDING_MODEL_ID
+            )
             if needs_embedding:
                 images_needing_embeddings.append(uuid)
             
@@ -129,33 +193,17 @@ def process_image_task(
             logger.info("No generation required (regenerate_metadata=False and all fields present). Returning success without changes.")
             return len(image_triplets), 0
         
-        # Override compute flags based on what's actually needed
-        actual_compute_embeddings = len(images_needing_embeddings) > 0
-        actual_compute_metadata = len(images_needing_metadata) > 0
-        actual_compute_quality = len(images_needing_quality) > 0
-        
         analysis_service = get_analysis_service()
-        siglip_model = None
-        siglip_processor = None
-        # Lazily acquire the model & processor for this batch to avoid loading at import time.
-        if actual_compute_embeddings:
-            siglip_model = server_lifecycle.get_model()
-            siglip_processor = server_lifecycle.get_processor()
 
         # Convert lists to sets for faster lookup in analyze_batch
-        embeddings, datetimes, metadata_results, ratings = analysis_service.analyze_batch(
-            image_triplets, options, siglip_model, siglip_processor,
-            set(images_needing_embeddings), set(images_needing_metadata), set(images_needing_quality)
+        _, datetimes, metadata_results, ratings = analysis_service.analyze_batch(
+            image_triplets, options, None, None,
+            set(), set(images_needing_metadata), set(images_needing_quality)
         )
 
-        if embeddings is None and compute_embeddings:
-            return 0, total_images
-
-        filenames = {triplet[1]: triplet[2] for triplet in image_triplets}
-
-        for i, (image_bytes, uuid, filename) in enumerate(image_triplets):
+        for i, (_image_bytes, uuid, filename) in enumerate(image_triplets):
             try:
-                embedding = embeddings[i] if embeddings is not None else None
+                embedding = None
                 rating_data = ratings[i] if ratings else None
                 metadata_data = metadata_results[i] if metadata_results else None
                 
@@ -166,11 +214,6 @@ def process_image_task(
                 need_quality = uuid in images_needing_quality
 
                 # Validate that required new data was generated if needed
-                if need_embedding and embedding is None:
-                    logger.error(f"Embedding generation failed for {uuid}. Skipping.")
-                    failure_count += 1
-                    continue
-                
                 if need_quality and (not rating_data or not rating_data.success):
                     logger.error(f"Quality rating generation failed for {uuid}. Skipping.")
                     failure_count += 1
@@ -237,7 +280,30 @@ def process_image_task(
                         main_metadata["model"] = model_name
                 
                 main_metadata['run_date'] = time.now().strftime("%Y-%m-%d %H:%M:%S")
-                
+
+                if replace_ss:
+                    for key, value in main_metadata.items():
+                        if isinstance(value, str):
+                            main_metadata[key] = value.replace("ß", "ss")
+
+                document = None
+                if need_embedding:
+                    document = _build_metadata_embedding_document(main_metadata)
+                    if not document:
+                        logger.error(f"No metadata text available for embedding {uuid}. Skipping.")
+                        failure_count += 1
+                        continue
+
+                    embedding = server_lifecycle.embed_document(document)
+                    if embedding is None:
+                        logger.error(f"Metadata embedding generation failed for {uuid}. Skipping.")
+                        failure_count += 1
+                        continue
+
+                    main_metadata["metadata_search_text"] = document
+                    main_metadata["embedding_source"] = "metadata"
+                    main_metadata["embedding_model"] = TEXT_EMBEDDING_MODEL_ID
+
                 # Update embedding status
                 if embedding is not None:
                     main_metadata['has_embedding'] = True
@@ -246,11 +312,6 @@ def process_image_task(
                     main_metadata['has_embedding'] = existing.get('has_embedding', False)
                 else:
                     main_metadata['has_embedding'] = False
-                
-                if replace_ss:
-                    for key, value in main_metadata.items():
-                        if isinstance(value, str):
-                            main_metadata[key] = value.replace("ß", "ss")
 
                 # Determine if we need to update the embedding
                 # Only update embedding if we generated a new one
@@ -258,20 +319,20 @@ def process_image_task(
                 
                 if existing and not regenerate_metadata:
                     logger.info(f"UUID {uuid} already exists. Updating (embedding: {update_embedding is not None}).")
-                    chroma_service.update_image(uuid, main_metadata, embedding=update_embedding)
+                    chroma_service.update_image(uuid, main_metadata, embedding=update_embedding, document=document)
                 elif regenerate_metadata:
                     logger.info(f"UUID {uuid} set to regenerate. Updating (embedding: {update_embedding is not None}).")
                     if chroma_service.get_image(uuid) is not None:
-                        chroma_service.update_image(uuid, main_metadata, embedding=update_embedding)
+                        chroma_service.update_image(uuid, main_metadata, embedding=update_embedding, document=document)
                     else:
-                        chroma_service.add_image(uuid, embedding, main_metadata)
+                        chroma_service.add_image(uuid, embedding, main_metadata, document=document)
                 else:
                     # New record
                     if embedding is not None:
-                        logger.info(f"UUID {uuid} is new. Indexing with embeddings.")
+                        logger.info(f"UUID {uuid} is new. Indexing with metadata embeddings.")
                     else:
                         logger.info(f"UUID {uuid} is new. Indexing metadata-only entry (no embedding).")
-                    chroma_service.add_image(uuid, embedding, main_metadata)
+                    chroma_service.add_image(uuid, embedding, main_metadata, document=document)
                 
                 success_count += 1
 

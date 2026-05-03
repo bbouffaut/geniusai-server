@@ -68,7 +68,7 @@ def _extract_options(data):
         else:
             tasks = tasks_raw
     else:
-        tasks = ['embeddings', 'quality'] # Default tasks
+        tasks = ['metadata', 'embeddings', 'quality'] # Default tasks
 
     options['compute_embeddings'] = 'embeddings' in tasks
     options['compute_metadata'] = 'metadata' in tasks
@@ -348,7 +348,7 @@ def get_ids():
     """Get all indexed image IDs, optionally filtered by embedding status.
     
     Query parameters:
-        has_embedding (string): 'true' to get only images with real embeddings,
+        has_embedding (string): 'true' to get only images with real metadata embeddings,
                                'false' to get only images with dummy embeddings,
                                omit to get all images.
     """

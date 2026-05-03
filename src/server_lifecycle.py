@@ -1,20 +1,29 @@
 import os
 import time
 import signal
-from config import DB_PATH, logger, IMAGE_MODEL_ID, TORCH_DEVICE, FETCH_MODELS, MODEL_CACHE_PATH
-import open_clip
+from config import (
+    DB_PATH,
+    FETCH_MODELS,
+    MODEL_CACHE_PATH,
+    TEXT_EMBEDDING_MAX_LENGTH,
+    TEXT_EMBEDDING_MODEL_ID,
+    TEXT_EMBEDDING_QUERY_INSTRUCTION,
+    TORCH_DEVICE,
+    logger,
+)
 import threading
 import datetime
 import gc
 import torch
+import torch.nn.functional as F
 import tqdm
+from transformers import AutoModel, AutoTokenizer
 from huggingface_hub import snapshot_download, HfApi
 
 
 # Lazy-loadable global model instances
-# model, processor and tokenizer start as None and will be loaded on first use.
+# model and tokenizer start as None and will be loaded on first use.
 model = None
-processor = None  # This will hold the image preprocessor
 tokenizer = None
 
 # Idle-unload handling
@@ -36,7 +45,7 @@ def _embedding_model_snapshot_download(**kwargs):
     if MODEL_CACHE_PATH:
         logger.info(f"Using embedding model cache path: {MODEL_CACHE_PATH}")
         kwargs["cache_dir"] = MODEL_CACHE_PATH
-    return snapshot_download(repo_id=IMAGE_MODEL_ID, **kwargs)
+    return snapshot_download(repo_id=TEXT_EMBEDDING_MODEL_ID, **kwargs)
 
 
 class DownloadProgressTracker(tqdm.tqdm):
@@ -80,24 +89,25 @@ def get_download_status():
 
 _download_thread = None
 _download_lock = threading.Lock()
+_counter_lock = threading.Lock()
 
 
-def _download_clip_model_thread():
+def _download_embedding_model_thread():
     global _download_status
     with _download_lock:
         if _download_status["status"] == "downloading":
             logger.warning("Download already in progress.")
             return
 
-    logger.info("Starting CLIP model download in background thread.")
+    logger.info("Starting text embedding model download in background thread.")
 
     try:
         api = HfApi()
-        model_info = api.model_info(IMAGE_MODEL_ID, files_metadata=True)
+        model_info = api.model_info(TEXT_EMBEDDING_MODEL_ID, files_metadata=True)
         total_size = sum(f.size for f in model_info.siblings if f.size)
 
-        DownloadProgressTracker.total_size = total_size
-        DownloadProgressTracker.bytes_downloaded = 0
+        DownloadProgressTracker.global_total_size = total_size
+        DownloadProgressTracker.global_bytes_downloaded = 0
 
         with _download_lock:
             _download_status = {
@@ -114,23 +124,28 @@ def _download_clip_model_thread():
 
         with _download_lock:
             _download_status["status"] = "completed"
-        logger.info(f"CLIP model downloaded to {path}")
+        logger.info(f"Text embedding model downloaded to {path}")
     except Exception as e:
-        logger.error(f"Error downloading CLIP model in background: {e}", exc_info=True)
+        logger.error(f"Error downloading text embedding model in background: {e}", exc_info=True)
         with _download_lock:
             _download_status["status"] = "error"
             _download_status["error"] = str(e)
 
 
-def start_download_clip_model():
+def start_download_embedding_model():
     global _download_thread
     with _download_lock:
         if _download_thread and _download_thread.is_alive():
             logger.warning("Download thread is already running.")
             return
-        _download_thread = threading.Thread(target=_download_clip_model_thread)
+        _download_thread = threading.Thread(target=_download_embedding_model_thread)
         _download_thread.daemon = True
         _download_thread.start()
+
+
+def start_download_clip_model():
+    """Backward-compatible name for older clients/routes."""
+    start_download_embedding_model()
 
 
 def _set_last_used():
@@ -146,15 +161,15 @@ def _needs_unload():
 
 
 def load_model():
-    """Load the OpenCLIP model (idempotent)."""
-    global model, processor, tokenizer
+    """Load the Hugging Face text embedding model (idempotent)."""
+    global model, tokenizer
     with _model_lock:
         if model is not None:
             _set_last_used()
             return
 
         try:
-            logger.info("Trying to load open_clip model from cache")
+            logger.info(f"Trying to load text embedding model from cache: {TEXT_EMBEDDING_MODEL_ID}")
 
             try:
                 cached_model_dir = _embedding_model_snapshot_download(
@@ -162,64 +177,52 @@ def load_model():
                 )
 
                 logger.info(f"Checking for cached model at: {cached_model_dir}")
-                
-                # Check if local model directory exists (production/bundled scenario)
-                if os.path.isdir(cached_model_dir):
-                    # Verify model files exist
-                    config_file = os.path.join(cached_model_dir, 'open_clip_config.json')
-                    weights_file = os.path.join(cached_model_dir, 'open_clip_model.safetensors')
 
-                    if os.path.isfile(config_file) and os.path.isfile(weights_file):
-                        local_model_uri = f"local-dir:{cached_model_dir}"
-                        logger.info(f"Loading OpenCLIP model from bundled directory: {cached_model_dir}")
-                        model_obj, _, proc = open_clip.create_model_and_transforms(
-                            local_model_uri,
-                            pretrained=None
-                        )
-                        tok = open_clip.get_tokenizer(local_model_uri)
-                        _set_last_used()
-                        logger.info("Loaded OpenCLIP model (lazy)")
-                    else:
-                        logger.warning(f"Bundled model directory exists but required files missing")
-                        logger.warning(f"Config file exists: {os.path.isfile(config_file)}")
-                        logger.warning(f"Weights file exists: {os.path.isfile(weights_file)}")
-                        raise FileNotFoundError("Bundled model files incomplete")
+                if os.path.isdir(cached_model_dir):
+                    logger.info(f"Loading text embedding model from directory: {cached_model_dir}")
+                    tok = AutoTokenizer.from_pretrained(cached_model_dir, padding_side="left")
+                    model_dtype = torch.float16 if TORCH_DEVICE in ("cuda", "mps") else torch.float32
+                    model_obj = AutoModel.from_pretrained(cached_model_dir, torch_dtype=model_dtype)
 
                     try:
                         model_obj.to(TORCH_DEVICE)
-                        logger.info(f"Text and vision model moved to {TORCH_DEVICE}")
+                        logger.info(f"Text embedding model moved to {TORCH_DEVICE}")
                     except Exception as e:
-                        logger.warning(f"Failed to move text and vision model to {TORCH_DEVICE}: {e}.")
+                        logger.warning(f"Failed to move text embedding model to {TORCH_DEVICE}: {e}.")
 
+                    model_obj.eval()
                     model = model_obj
-                    processor = proc
                     tokenizer = tok
+                    _set_last_used()
+                    logger.info("Loaded text embedding model (lazy)")
+                else:
+                    raise FileNotFoundError("Text embedding model cache directory not found")
 
             except Exception as e:
                 if FETCH_MODELS:
-                    logger.warning(f"Failed to load OpenCLIP model from cache or download. This can happen if the model is not fully downloaded, is corrupted, or if there is a configuration issue. The error was: {e}", exc_info=True)
+                    logger.warning(f"Failed to load text embedding model from cache or download. This can happen if the model has not fully downloaded, is corrupted, or if there is a configuration issue. The error was: {e}", exc_info=True)
                 else:
                     logger.warning(
-                        "Failed to load OpenCLIP model from local cache. If the model has not been downloaded yet, "
+                        "Failed to load text embedding model from local cache. If the model has not been downloaded yet, "
                         "start the server with --fetch-models to enable downloading. "
                         f"The error was: {e}",
                         exc_info=True
                     )
 
         except Exception as e:
-            logger.error(f"Failed to load OpenCLIP model (lazy): {e}", exc_info=True)
+            logger.error(f"Failed to load text embedding model (lazy): {e}", exc_info=True)
             raise
 
 
 
 def unload_model():
     """Unload the loaded model to free GPU/CPU memory."""
-    global model, processor, tokenizer
+    global model, tokenizer
     with _model_lock:
-        if model is None and processor is None and tokenizer is None:
+        if model is None and tokenizer is None:
             return
 
-        logger.info("Unloading OpenCLIP model due to inactivity...")
+        logger.info("Unloading text embedding model due to inactivity...")
         try:
             # If the model is a torch module, try moving it to cpu and delete the reference.
             try:
@@ -229,7 +232,6 @@ def unload_model():
                 pass
 
             model = None
-            processor = None
             tokenizer = None
 
             # Best-effort free memory for CUDA
@@ -241,7 +243,7 @@ def unload_model():
 
             # Force a GC pass
             gc.collect()
-            logger.info("Unloaded OpenCLIP model.")
+            logger.info("Unloaded text embedding model.")
         except Exception as e:
             logger.warning(f"Error while unloading model: {e}")
 
@@ -269,6 +271,79 @@ def _ensure_unloader_thread():
         _unloader_thread.start()
 
 
+def _last_token_pool(last_hidden_states, attention_mask):
+    left_padding = attention_mask[:, -1].sum() == attention_mask.shape[0]
+    if left_padding:
+        return last_hidden_states[:, -1]
+
+    sequence_lengths = attention_mask.sum(dim=1) - 1
+    batch_size = last_hidden_states.shape[0]
+    return last_hidden_states[
+        torch.arange(batch_size, device=last_hidden_states.device),
+        sequence_lengths,
+    ]
+
+
+def _format_embedding_input(text, input_type):
+    if input_type == "query" and not text.startswith("Instruct:"):
+        return f"Instruct: {TEXT_EMBEDDING_QUERY_INSTRUCTION}\nQuery:{text}"
+    return text
+
+
+def embed_texts(texts, input_type="document"):
+    """Encode texts into normalized metadata-search embeddings."""
+    if isinstance(texts, str):
+        texts = [texts]
+
+    if not texts:
+        return []
+
+    texts = [str(text) for text in texts if text is not None]
+    if not texts:
+        return []
+
+    load_model()
+    _ensure_unloader_thread()
+    if model is None or tokenizer is None:
+        logger.error("Text embedding model not initialized.")
+        return None
+
+    input_texts = [_format_embedding_input(text, input_type) for text in texts]
+
+    try:
+        batch = tokenizer(
+            input_texts,
+            max_length=TEXT_EMBEDDING_MAX_LENGTH,
+            padding=True,
+            truncation=True,
+            return_tensors="pt",
+        ).to(TORCH_DEVICE)
+
+        with torch.no_grad():
+            outputs = model(**batch)
+            embeddings = _last_token_pool(outputs.last_hidden_state, batch["attention_mask"])
+            normalized_embeddings = F.normalize(embeddings, p=2, dim=1)
+            _set_last_used()
+            return normalized_embeddings.cpu().numpy()
+    except Exception as e:
+        logger.error(f"Failed to generate text embeddings: {e}", exc_info=True)
+        return None
+
+
+def embed_query(text):
+    embeddings = embed_texts([text], input_type="query")
+    if embeddings is None or len(embeddings) == 0:
+        return None
+    return embeddings[0]
+
+
+def embed_document(text):
+    embeddings = embed_texts([text], input_type="document")
+    if embeddings is None or len(embeddings) == 0:
+        return None
+    return embeddings[0]
+
+
 def get_model():
     """Return the model, loading it lazily if needed."""
     load_model()
@@ -277,9 +352,8 @@ def get_model():
 
 
 def get_processor():
-    load_model()
-    _ensure_unloader_thread()
-    return processor
+    """Backward-compatible no-op; metadata embeddings do not use an image processor."""
+    return None
 
 
 def get_tokenizer():
