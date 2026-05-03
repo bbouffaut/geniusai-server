@@ -1,7 +1,7 @@
 import os
 import time
 import signal
-from config import DB_PATH, logger, IMAGE_MODEL_ID, TORCH_DEVICE, FETCH_MODELS
+from config import DB_PATH, logger, IMAGE_MODEL_ID, TORCH_DEVICE, FETCH_MODELS, MODEL_CACHE_PATH
 import open_clip
 import threading
 import datetime
@@ -30,6 +30,13 @@ _download_status = {
     "total": 0,
     "error": None
 }
+
+
+def _embedding_model_snapshot_download(**kwargs):
+    if MODEL_CACHE_PATH:
+        logger.info(f"Using embedding model cache path: {MODEL_CACHE_PATH}")
+        kwargs["cache_dir"] = MODEL_CACHE_PATH
+    return snapshot_download(repo_id=IMAGE_MODEL_ID, **kwargs)
 
 
 class DownloadProgressTracker(tqdm.tqdm):
@@ -101,8 +108,7 @@ def _download_clip_model_thread():
                 "unit": "B"
             }
 
-        path = snapshot_download(
-            repo_id=IMAGE_MODEL_ID,
+        path = _embedding_model_snapshot_download(
             # tqdm_class=DownloadProgressTracker
         )
 
@@ -151,8 +157,7 @@ def load_model():
             logger.info("Trying to load open_clip model from cache")
 
             try:
-                cached_model_dir = snapshot_download(
-                    repo_id=IMAGE_MODEL_ID,
+                cached_model_dir = _embedding_model_snapshot_download(
                     local_files_only=not FETCH_MODELS,
                 )
 

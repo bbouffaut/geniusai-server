@@ -9,11 +9,13 @@ parser = argparse.ArgumentParser(description='LrGenius Server')
 parser.add_argument('--db-path', type=str, help='Path to the ChromaDB database folder', required=True)
 parser.add_argument('--debug', action='store_true', help='Enable debug mode with auto-reloading and debug log level')
 parser.add_argument('--fetch-models', action='store_true', help='Fetch models from HF-Hub')
+parser.add_argument('--model-cache-path', type=str, help='Path to store/load the embedding model cache')
 args = parser.parse_args()
 
 # --- Constants ---
 DB_PATH = args.db_path
 FETCH_MODELS = args.fetch_models
+MODEL_CACHE_PATH = os.path.abspath(os.path.expanduser(args.model_cache_path)) if args.model_cache_path else None
 
 # --- Code Style Preferences ---
 USE_EMOJIS = False  # Set to False to avoid emojis in logs and output

@@ -16,9 +16,14 @@ macOS/Linux:
 ```bash
 ./run.sh --fetch-models #populate cache with models
 ./run.sh --db-path <db_path> # specify Genius DB Path
+./run.sh --model-cache-path <model_cache_path> # specify embedding model cache path
 ./run.sh --debug #Debug mode
 ./run.sh #load models from cache, assuming this is present
+#./run.sh --db-path "/Volumes/Extreme SSD/Lightroom Plugins/lrgeniusAI-data/lrgenius.db" --model-cache-path "/Volumes/Extreme SSD/Lightroom Plugins/lrgeniusAI-data/embeddings-models-cache/"
+#./run.sh --fetch-models --db-path "/Volumes/Extreme SSD/Lightroom Plugins/lrgeniusAI-data/lrgenius.db" --model-cache-path "/Volumes/Extreme SSD/Lightroom Plugins/lrgeniusAI-data/embeddings-models-cache/"
 ```
+
+The embedding model cache path controls where the OpenCLIP/SigLIP2 model is stored and loaded from. It is passed to Hugging Face as `cache_dir`, so the model will be stored under that directory using Hugging Face's cache layout.
 
 ### Models selection
 - is done at the client side
