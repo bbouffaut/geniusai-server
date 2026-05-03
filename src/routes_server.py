@@ -33,7 +33,9 @@ def list_models():
     Returns all available multimodal models from all providers.
     
     Dynamically checks availability of Ollama and LM Studio on each request.
-    Always filters for multimodal (vision-capable) models only.
+    Uses provider APIs when cloud API keys are supplied, with static fallbacks
+    when keys are missing or listing fails. Always filters for multimodal
+    (vision-capable) models only.
     
     POST JSON: { 
         openai_apikey?: str,  # Optional OpenAI API key for ChatGPT models

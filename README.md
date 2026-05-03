@@ -37,4 +37,4 @@ Indexing embeds generated photo metadata, not the image pixels. The default embe
 ### Models selection
 - is done at the client side
 - Default is ollama -> Needs to have a ollama listening locally on 11434 port
-- Cloud providers can receive their API key per request through `api_key`; `/models` also accepts provider-specific keys such as `openai_apikey`, `gemini_apikey`, and `mistral_apikey`.
+- Cloud providers can receive their API key per request through `api_key`; `/models` also accepts provider-specific keys such as `openai_apikey`, `gemini_apikey`, and `mistral_apikey`. When a key is provided, `/models` asks the provider API for available models and falls back to the built-in list if listing is unavailable.

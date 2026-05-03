@@ -239,12 +239,12 @@ class MistralProvider(LLMProviderBase):
 
     def list_available_models(self) -> list:
         """
-        List known Mistral vision-capable models.
+        List Mistral vision-capable models.
 
         Returns:
             List of model identifiers
         """
-        vision_models = [
+        fallback_models = [
             "mistral-large-2512",
             "mistral-medium-2508",
             "mistral-small-2506",
@@ -253,8 +253,38 @@ class MistralProvider(LLMProviderBase):
             "ministral-3b-2512",
         ]
 
-        logger.info(f"Returning {len(vision_models)} hardcoded Mistral models")
-        return vision_models
+        api_key = self._get_api_key(None)
+        if not api_key:
+            logger.info(f"Returning {len(fallback_models)} fallback Mistral models")
+            return fallback_models
+
+        try:
+            response = requests.get(
+                f"{self.base_url}/models",
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=self.timeout,
+            )
+
+            if not response.ok:
+                raise RuntimeError(self._format_http_error(response))
+
+            response_data = response.json()
+            dynamic_models = []
+            for model in self._extract_model_cards(response_data):
+                model_id = model.get("id") or model.get("name")
+                if self._is_vision_chat_model(model_id, model):
+                    dynamic_models.append(model_id)
+
+            dynamic_models = sorted(set(dynamic_models))
+            if dynamic_models:
+                logger.info(f"Returning {len(dynamic_models)} Mistral models from API")
+                return dynamic_models
+
+            logger.warning("Mistral API returned no matching vision chat models; returning fallback models")
+        except Exception as e:
+            logger.error(f"Error listing Mistral models from API: {e}", exc_info=True)
+
+        return fallback_models
 
     def _get_api_key(self, request_api_key: Optional[str]) -> Optional[str]:
         if request_api_key:
@@ -276,6 +306,32 @@ class MistralProvider(LLMProviderBase):
             raise RuntimeError(self._format_http_error(response))
 
         return response.json()
+
+    def _extract_model_cards(self, response_data: Any) -> list:
+        if isinstance(response_data, list):
+            return [item for item in response_data if isinstance(item, dict)]
+        if isinstance(response_data, dict):
+            data = response_data.get("data") or []
+            return [item for item in data if isinstance(item, dict)]
+        return []
+
+    def _is_vision_chat_model(self, model_id: Optional[str], model: Dict[str, Any]) -> bool:
+        if not model_id or model.get("archived"):
+            return False
+
+        capabilities = model.get("capabilities") or {}
+        if capabilities:
+            return bool(capabilities.get("vision")) and bool(capabilities.get("completion_chat", True))
+
+        fallback_model_ids = {
+            "mistral-large-2512",
+            "mistral-medium-2508",
+            "mistral-small-2506",
+            "ministral-14b-2512",
+            "ministral-8b-2512",
+            "ministral-3b-2512",
+        }
+        return model_id in fallback_model_ids
 
     def _prepare_mistral_response_format(
         self, request: MetadataGenerationRequest

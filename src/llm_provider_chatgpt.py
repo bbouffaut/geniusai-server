@@ -18,6 +18,7 @@ class ChatGPTProvider(LLMProviderBase):
         self.api_key = config.get('api_key')
         self.timeout = config.get('timeout', 120)
         self.client = None
+        self._client_api_key = None
         
         if self.api_key:
             self._initialize_client()
@@ -30,10 +31,17 @@ class ChatGPTProvider(LLMProviderBase):
                 api_key=self.api_key,
                 timeout=self.timeout
             )
+            self._client_api_key = self.api_key
             logger.info("OpenAI client initialized")
         except Exception as e:
             logger.error(f"Failed to initialize OpenAI client: {e}")
             self.client = None
+            self._client_api_key = None
+
+    def _ensure_client(self) -> bool:
+        if self.api_key and (self.client is None or self._client_api_key != self.api_key):
+            self._initialize_client()
+        return self.is_available()
     
     def is_available(self) -> bool:
         """Check if OpenAI API is configured"""
@@ -49,25 +57,20 @@ class ChatGPTProvider(LLMProviderBase):
         Returns:
             MetadataGenerationResponse with generated metadata
         """
-        if not self.is_available():
-            if request.api_key:
-                # Try to initialize client with provided API key
-                self.api_key = request.api_key
-                self._initialize_client()
-                if not self.is_available():
-                    return MetadataGenerationResponse(
-                        uuid=request.uuid,
-                        success=False,
-                        error="OpenAI API initialization failed with provided API key"
-                    )
-                else:
-                    logger.info("OpenAI client initialized with provided API key for metadata generation")
-            else:
+        if request.api_key:
+            self.api_key = request.api_key
+        if not self._ensure_client():
+            if not request.api_key:
                 return MetadataGenerationResponse(
                     uuid=request.uuid,
                     success=False,
                     error="OpenAI API not configured"
                 )
+            return MetadataGenerationResponse(
+                uuid=request.uuid,
+                success=False,
+                error="OpenAI API initialization failed with provided API key"
+            )
         
         try:
             # Convert image to base64 data URI
@@ -191,25 +194,20 @@ class ChatGPTProvider(LLMProviderBase):
             QualityScoreResponse with quality scores and critique
         """
         
-        if not self.is_available():
-            if request.api_key:
-                # Try to initialize client with provided API key
-                self.api_key = request.api_key
-                self._initialize_client()
-                if not self.is_available():
-                    return QualityScoreResponse(
-                        uuid=request.uuid,
-                        success=False,
-                        error="OpenAI API initialization failed with provided API key"
-                    )
-                else:
-                    logger.info("OpenAI client initialized with provided API key for quality scoring")
-            else:
+        if request.api_key:
+            self.api_key = request.api_key
+        if not self._ensure_client():
+            if not request.api_key:
                 return QualityScoreResponse(
                     uuid=request.uuid,
                     success=False,
                     error="OpenAI API not configured"
                 )
+            return QualityScoreResponse(
+                uuid=request.uuid,
+                success=False,
+                error="OpenAI API initialization failed with provided API key"
+            )
 
         try:
             # Convert image to base64 data URI
@@ -346,13 +344,7 @@ class ChatGPTProvider(LLMProviderBase):
         Returns:
             List of model identifiers
         """
-        # Return hardcoded list even if API key is not configured
-        # This allows users to see which models are available
-        # The actual API key will be provided when making requests
-        
-        # Hardcoded list of vision-capable ChatGPT models
-        # SDK-based filtering commented out as it returns too many irrelevant models
-        vision_models = [
+        fallback_models = [
             'gpt-4.1',
             'gpt-4.1-mini',
             'gpt-5',
@@ -361,6 +353,69 @@ class ChatGPTProvider(LLMProviderBase):
             'gpt-5.1',
             'gpt-5.2',
         ]
-        
-        logger.info(f"Returning {len(vision_models)} hardcoded ChatGPT models")
-        return vision_models
+
+        if not self.api_key:
+            logger.info(f"Returning {len(fallback_models)} fallback ChatGPT models")
+            return fallback_models
+
+        if not self._ensure_client():
+            logger.warning("OpenAI API key is present, but client initialization failed; returning fallback models")
+            return fallback_models
+
+        try:
+            response = self.client.models.list()
+            dynamic_models = []
+            for model in getattr(response, "data", response):
+                model_id = self._extract_model_id(model)
+                if self._is_vision_chat_model(model_id):
+                    dynamic_models.append(model_id)
+
+            dynamic_models = sorted(set(dynamic_models))
+            if dynamic_models:
+                logger.info(f"Returning {len(dynamic_models)} ChatGPT models from OpenAI API")
+                return dynamic_models
+
+            logger.warning("OpenAI API returned no matching vision chat models; returning fallback models")
+        except Exception as e:
+            logger.error(f"Error listing OpenAI models from API: {e}", exc_info=True)
+
+        return fallback_models
+
+    def _extract_model_id(self, model: Any) -> str:
+        if isinstance(model, dict):
+            return model.get("id", "")
+        return getattr(model, "id", "")
+
+    def _is_vision_chat_model(self, model_id: str) -> bool:
+        if not model_id:
+            return False
+
+        lower_model_id = model_id.lower()
+        excluded_fragments = (
+            "audio",
+            "dall-e",
+            "embedding",
+            "image",
+            "moderation",
+            "realtime",
+            "search",
+            "transcribe",
+            "tts",
+            "whisper",
+        )
+        if any(fragment in lower_model_id for fragment in excluded_fragments):
+            return False
+
+        # The OpenAI models endpoint exposes availability, not modality flags, so
+        # keep a conservative allow-list of chat model families this provider uses.
+        supported_prefixes = (
+            "gpt-4.1",
+            "gpt-4o",
+            "gpt-4-turbo",
+            "gpt-4-vision",
+            "gpt-5",
+        )
+        return any(
+            lower_model_id == prefix or lower_model_id.startswith(f"{prefix}-")
+            for prefix in supported_prefixes
+        )

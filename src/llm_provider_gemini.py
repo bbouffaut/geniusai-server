@@ -19,6 +19,7 @@ class GeminiProvider(LLMProviderBase):
         self.timeout = config.get('timeout', 300)
         # client will be a google.genai.Client instance when initialized
         self.client = None
+        self._client_api_key = None
         self.rate_limit_hit = 0
         
         if self.api_key:
@@ -33,11 +34,18 @@ class GeminiProvider(LLMProviderBase):
             # Create a genai Client instance and store it on the provider.
             import google.genai as genai
             self.client = genai.Client(api_key=self.api_key)
+            self._client_api_key = self.api_key
 
             logger.info("Google GenAI client initialized")
         except Exception as e:
             logger.error(f"Failed to initialize Gemini client: {e}")
             self.client = None
+            self._client_api_key = None
+
+    def _ensure_client(self) -> bool:
+        if self.api_key and (self.client is None or self._client_api_key != self.api_key):
+            self._initialize_client()
+        return self.is_available()
     
     def is_available(self) -> bool:
         """Check if Gemini API is configured"""
@@ -54,22 +62,18 @@ class GeminiProvider(LLMProviderBase):
             MetadataGenerationResponse with generated metadata
         """
         if request.api_key:
-            # Re-initialize client with provided API key
             self.api_key = request.api_key
-            self._initialize_client()
-            if not self.is_available():
+        if not self._ensure_client():
+            if not request.api_key:
                 return MetadataGenerationResponse(
                     uuid=request.uuid,
                     success=False,
-                    error="Gemini API not configured with provided API key"
+                    error="Gemini API not configured"
                 )
-            else:
-                logger.info("Gemini client initialized with request API key")
-        else:
             return MetadataGenerationResponse(
                 uuid=request.uuid,
                 success=False,
-                error="Gemini API not configured"
+                error="Gemini API not configured with provided API key"
             )
         
         try:
@@ -250,25 +254,20 @@ class GeminiProvider(LLMProviderBase):
             QualityScoreResponse with quality scores and critique
         """
         
-        if not self.is_available():
-            if request.api_key:
-                # Re-initialize client with provided API key
-                self.api_key = request.api_key
-                self._initialize_client()
-                if not self.is_available():
-                    return QualityScoreResponse(
-                        uuid=request.uuid,
-                        success=False,
-                        error="Gemini API not configured with provided API key"
-                    )
-                else:
-                    logger.info("Gemini client initialized with request API key")
-            else:
+        if request.api_key:
+            self.api_key = request.api_key
+        if not self._ensure_client():
+            if not request.api_key:
                 return QualityScoreResponse(
                     uuid=request.uuid,
                     success=False,
                     error="Gemini API not configured"
                 )
+            return QualityScoreResponse(
+                uuid=request.uuid,
+                success=False,
+                error="Gemini API not configured with provided API key"
+            )
         
         try:
             # Load image
@@ -535,19 +534,70 @@ class GeminiProvider(LLMProviderBase):
         Returns:
             List of model identifiers
         """
-        # Return hardcoded list even if API key is not configured
-        # This allows users to see which models are available
-        # The actual API key will be provided when making requests
-        
-        # Hardcoded list of vision-capable Gemini models
-        # SDK-based filtering commented out as it returns too many irrelevant models
-        vision_models = [
+        fallback_models = [
             'gemini-2.5-flash-lite',
             'gemini-2.5-flash',
             'gemini-2.5-pro',
             'gemini-3-flash-preview',
             'gemini-3-pro-preview',
         ]
-        
-        logger.info(f"Returning {len(vision_models)} hardcoded Gemini models")
-        return vision_models
+
+        if not self.api_key:
+            logger.info(f"Returning {len(fallback_models)} fallback Gemini models")
+            return fallback_models
+
+        if not self._ensure_client():
+            logger.warning("Gemini API key is present, but client initialization failed; returning fallback models")
+            return fallback_models
+
+        try:
+            dynamic_models = []
+            for model in self.client.models.list():
+                model_name = self._normalize_model_name(self._extract_model_name(model))
+                if self._is_vision_generation_model(model_name, model):
+                    dynamic_models.append(model_name)
+
+            dynamic_models = sorted(set(dynamic_models))
+            if dynamic_models:
+                logger.info(f"Returning {len(dynamic_models)} Gemini models from API")
+                return dynamic_models
+
+            logger.warning("Gemini API returned no matching vision generation models; returning fallback models")
+        except Exception as e:
+            logger.error(f"Error listing Gemini models from API: {e}", exc_info=True)
+
+        return fallback_models
+
+    def _extract_model_name(self, model: Any) -> str:
+        if isinstance(model, dict):
+            return model.get("name", "")
+        return getattr(model, "name", "")
+
+    def _normalize_model_name(self, model_name: str) -> str:
+        return model_name.rsplit("/", 1)[-1] if model_name else ""
+
+    def _is_vision_generation_model(self, model_name: str, model: Any) -> bool:
+        if not model_name:
+            return False
+
+        supported_actions = getattr(model, "supported_actions", None)
+        if supported_actions is None and isinstance(model, dict):
+            supported_actions = model.get("supported_actions")
+        if supported_actions and "generateContent" not in supported_actions:
+            return False
+
+        lower_model_name = model_name.lower()
+        excluded_fragments = (
+            "aqa",
+            "embedding",
+            "flash-image",
+            "imagen",
+            "image-generation",
+            "text-embedding",
+            "tts",
+            "veo",
+        )
+        if any(fragment in lower_model_name for fragment in excluded_fragments):
+            return False
+
+        return lower_model_name.startswith("gemini-")
