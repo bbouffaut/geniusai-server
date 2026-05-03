@@ -110,9 +110,6 @@ class ChatGPTProvider(LLMProviderBase):
                 }
             ]
             
-            # Make API call
-            logger.debug(f"Sending request to OpenAI: {request.model}")
-            
             completion_params = {
                 "model": request.model,
                 "messages": messages,
@@ -124,6 +121,8 @@ class ChatGPTProvider(LLMProviderBase):
             if request.model.startswith("gpt-5"):
                 completion_params["reasoning_effort"] = "low"
             
+            # Make API call
+            self._log_llm_payload("OpenAI metadata request", completion_params)
             response = self.client.chat.completions.create(**completion_params)
             
             # Check finish reason
@@ -261,9 +260,6 @@ class ChatGPTProvider(LLMProviderBase):
                 }
             ]
             
-            # Make API call
-            logger.debug(f"Sending quality scoring request to OpenAI: {request.model}")
-            
             completion_params = {
                 "model": request.model,
                 "messages": messages,
@@ -274,6 +270,8 @@ class ChatGPTProvider(LLMProviderBase):
             if request.model.startswith("gpt-5"):
                 completion_params["reasoning_effort"] = "low"
             
+            # Make API call
+            self._log_llm_payload("OpenAI quality scoring request", completion_params)
             response = self.client.chat.completions.create(**completion_params)
             
             # Check finish reason

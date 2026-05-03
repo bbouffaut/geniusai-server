@@ -2,10 +2,12 @@ from abc import ABC, abstractmethod
 from typing import Dict, List, Optional, Any, Union
 from dataclasses import dataclass
 import base64
+import json
+import logging
 from PIL import Image
 import io
 
-from config import ALT_TEXT_PROMPT_ADDON, BASE_PROMPT, CAPTION_TEXT_PROMPT_ADDON, KEYWORDS_TEXT_PROMPT_ADDON, LANGUAGE_TEXT_INSTRUCTION_ADDON, TITLE_TEXT_PROMPT_ADDON
+from config import ALT_TEXT_PROMPT_ADDON, BASE_PROMPT, CAPTION_TEXT_PROMPT_ADDON, KEYWORDS_TEXT_PROMPT_ADDON, LANGUAGE_TEXT_INSTRUCTION_ADDON, TITLE_TEXT_PROMPT_ADDON, logger
 
 
 # Import prompts from config
@@ -151,6 +153,52 @@ class LLMProviderBase(ABC):
         """
         self.config = config
         self.provider_name = self.__class__.__name__
+
+    def _log_llm_payload(self, label: str, payload: Dict[str, Any]) -> None:
+        if not logger.isEnabledFor(logging.DEBUG):
+            return
+
+        logger.debug(
+            "%s payload:\n%s",
+            label,
+            json.dumps(
+                self._sanitize_llm_payload(payload),
+                indent=2,
+                ensure_ascii=False,
+                default=str,
+            ),
+        )
+
+    def _sanitize_llm_payload(self, value: Any, key: Optional[str] = None) -> Any:
+        if isinstance(value, dict):
+            return {
+                payload_key: self._sanitize_llm_payload(payload_value, payload_key)
+                for payload_key, payload_value in value.items()
+            }
+
+        if isinstance(value, list):
+            return [self._sanitize_llm_payload(item, key) for item in value]
+
+        if isinstance(value, tuple):
+            return [self._sanitize_llm_payload(item, key) for item in value]
+
+        if isinstance(value, bytes):
+            return f"<image bytes omitted; {len(value)} bytes>"
+
+        if isinstance(value, str):
+            if value.startswith("data:image/"):
+                header, _, encoded_image = value.partition(",")
+                return f"{header},<base64 image omitted; {len(encoded_image)} chars>"
+
+            if key in {"image", "images", "image_url", "data"} and len(value) > 100:
+                return f"<base64 image omitted; {len(value)} chars>"
+
+            max_string_length = 4000
+            if len(value) > max_string_length:
+                omitted_chars = len(value) - max_string_length
+                return f"{value[:max_string_length]}... [truncated {omitted_chars} chars]"
+
+        return value
     
     @abstractmethod
     def generate_metadata(self, request: MetadataGenerationRequest) -> MetadataGenerationResponse:

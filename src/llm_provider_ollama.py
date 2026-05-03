@@ -80,27 +80,27 @@ class OllamaProvider(LLMProviderBase):
             user_prompt = self._prepare_user_prompt(request)
             response_schema = self._prepare_response_structure(request)
 
-            logger.debug(f"system_prompt = ${system_prompt} / user_prompt=${user_prompt} / response_schema=${response_schema}")
-
             model_to_use = request.model
             logger.info(f"[Ollama] Using model: {model_to_use}")
 
-            # Call Ollama via Python SDK
-            logger.debug("Sending chat request to Ollama via SDK")
-            result = self.client.chat(
-                model=model_to_use,
-                messages=[
+            payload = {
+                "model": model_to_use,
+                "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt, "images": [image_b64]},
                 ],
-                format=response_schema,
-                options={
+                "format": response_schema,
+                "options": {
                     "temperature": request.temperature,
                     "top_p": 0.9,
                     "num_keep": -1,
                 },
-                stream=False,
-            )
+                "stream": False,
+            }
+
+            # Call Ollama via Python SDK
+            self._log_llm_payload("Ollama metadata request", payload)
+            result = self.client.chat(**payload)
 
             # Extract message content (supports dict or typed SDK objects)
             if isinstance(result, dict):
@@ -195,16 +195,19 @@ class OllamaProvider(LLMProviderBase):
             model_to_use = request.model
             logger.info(f"[Ollama] Using model for quality: {model_to_use}")
 
-            result = self.client.chat(
-                model=model_to_use,
-                messages=[
+            payload = {
+                "model": model_to_use,
+                "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt, "images": [image_b64]},
                 ],
-                format=response_schema,
-                options={"temperature": request.temperature, "top_p": 0.8},
-                stream=False,
-            )
+                "format": response_schema,
+                "options": {"temperature": request.temperature, "top_p": 0.8},
+                "stream": False,
+            }
+
+            self._log_llm_payload("Ollama quality scoring request", payload)
+            result = self.client.chat(**payload)
 
             if isinstance(result, dict):
                 message = result.get("message") or {}

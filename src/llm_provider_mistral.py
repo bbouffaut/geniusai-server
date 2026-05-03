@@ -75,7 +75,7 @@ class MistralProvider(LLMProviderBase):
             }
             self._add_max_tokens(payload, request.max_tokens)
 
-            logger.debug(f"Sending metadata request to Mistral: {request.model}")
+            self._log_llm_payload("Mistral metadata request", payload)
             response_data = self._post_chat_completion(api_key, payload)
 
             choice = self._first_choice(response_data)
@@ -190,7 +190,7 @@ class MistralProvider(LLMProviderBase):
             }
             self._add_max_tokens(payload, request.max_tokens)
 
-            logger.debug(f"Sending quality scoring request to Mistral: {request.model}")
+            self._log_llm_payload("Mistral quality scoring request", payload)
             response_data = self._post_chat_completion(api_key, payload)
 
             choice = self._first_choice(response_data)

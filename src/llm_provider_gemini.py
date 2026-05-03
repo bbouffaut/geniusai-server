@@ -92,12 +92,16 @@ class GeminiProvider(LLMProviderBase):
 
             # Prepare thinking config for certain models
             thinking_config = None
+            thinking_config_payload = None
             if model_name == "gemini-2.5-pro":
                 thinking_config=types.ThinkingConfig(thinking_budget=128)
+                thinking_config_payload = {"thinking_budget": 128}
             elif model_name == "gemini-2.5-flash" or model_name == "gemini-2.5-flash-lite":
                 thinking_config=types.ThinkingConfig(thinking_budget=0)
+                thinking_config_payload = {"thinking_budget": 0}
             elif model_name == "gemini-3-pro-preview":
                 thinking_config=types.ThinkingConfig(thinking_level="low")
+                thinking_config_payload = {"thinking_level": "low"}
 
 
             # Build a typed GenerateContentConfig from our generation_config dict
@@ -112,6 +116,23 @@ class GeminiProvider(LLMProviderBase):
             try:
                 # contents may include the user prompt and an image part
                 contents = [user_prompt, types.Part.from_bytes(data=request.image_data, mime_type='image/jpeg')]
+                payload = {
+                    "model": model_name,
+                    "contents": [
+                        user_prompt,
+                        {
+                            "inline_data": {
+                                "mime_type": "image/jpeg",
+                                "data": request.image_data,
+                            }
+                        },
+                    ],
+                    "config": {
+                        **generation_config,
+                        **({"thinking_config": thinking_config_payload} if thinking_config_payload else {}),
+                    },
+                }
+                self._log_llm_payload("Gemini metadata request", payload)
                 response = self.client.models.generate_content(
                     model=model_name,
                     contents=contents,
@@ -318,6 +339,20 @@ class GeminiProvider(LLMProviderBase):
 
             try:
                 contents = [user_prompt, types.Part.from_bytes(data=request.image_data, mime_type='image/jpeg')]
+                payload = {
+                    "model": model_name,
+                    "contents": [
+                        user_prompt,
+                        {
+                            "inline_data": {
+                                "mime_type": "image/jpeg",
+                                "data": request.image_data,
+                            }
+                        },
+                    ],
+                    "config": generation_config,
+                }
+                self._log_llm_payload("Gemini quality scoring request", payload)
                 response = self.client.models.generate_content(
                     model=model_name,
                     contents=contents,
