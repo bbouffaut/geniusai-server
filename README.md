@@ -15,6 +15,8 @@ macOS/Linux:
 
 ```bash
 ./run.sh --fetch-models #populate cache with models
+./run.sh --db-path <db_path> # specify Genius DB Path
+./run.sh --debug #Debug mode
 ./run.sh #load models from cache, assuming this is present
 ```
 
