@@ -1,24 +1,63 @@
 from flask import Blueprint, request, jsonify
-from config import logger
+from config import DEFAULT_MIN_PERTINENCE_SCORE, logger
 import service_search
 
 search_bp = Blueprint('search', __name__)
+
+
+def _request_value(data, *keys):
+    for key in keys:
+        if key in request.args:
+            return request.args.get(key)
+        if data and data.get(key) is not None:
+            return data.get(key)
+    return None
+
+
+def _parse_min_pertinence_score(data):
+    raw_score = _request_value(
+        data,
+        'min_pertinence_score',
+        'min_pertinence',
+        'pertinence_threshold',
+        'pertinence_score',
+        'min_score',
+    )
+    if raw_score is None:
+        return DEFAULT_MIN_PERTINENCE_SCORE, None
+
+    try:
+        score = float(raw_score)
+    except (ValueError, TypeError):
+        return None, "Invalid min_pertinence_score value"
+
+    if score < 0 or score > 1:
+        return None, "min_pertinence_score must be between 0 and 1"
+
+    return score, None
+
 
 @search_bp.route('/search', methods=['GET', 'POST'])
 def search_route():
     logger.info("Search request received")
     try:
-        term = request.args.get('term') or (request.is_json and request.get_json().get('term'))
+        data = (request.get_json(silent=True) if request.is_json else {}) or {}
+
+        term = request.args.get('term') or data.get('term')
         if not term:
             return jsonify({"error": "No search term provided"}), 400
 
-        quality_sort = request.args.get('quality_sort', None)
+        min_pertinence_score, error = _parse_min_pertinence_score(data)
+        if error:
+            return jsonify({"error": error}), 400
+
+        quality_sort = request.args.get('quality_sort', None) or data.get('quality_sort')
 
         uuids_to_search = None
         if request.method == 'POST' and request.is_json:
-            uuids_to_search = request.get_json().get('uuids')
+            uuids_to_search = data.get('uuids')
 
-        sorted_results = service_search.search_images(term, quality_sort, uuids_to_search)
+        sorted_results = service_search.search_images(term, quality_sort, uuids_to_search, min_pertinence_score)
         return jsonify(sorted_results)
     except Exception as e:
         logger.error(f"Error during search: {e}", exc_info=True)

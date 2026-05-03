@@ -49,6 +49,11 @@ IMAGE_MODEL_ID = "timm/" + CLIP_MODEL_NAME
 LLM_BATCH_SIZE = 3  # Optimized batch size for better performance
 LLM_TEMPERATURE = 0.2  # Reduced for faster, more deterministic responses
 
+# --- Search Settings ---
+# Cosine similarity threshold for normalized text/image embeddings.
+# Clients can override this per request with min_pertinence_score.
+DEFAULT_MIN_PERTINENCE_SCORE = 0.2
+
 # --- Prompts for Quality Scoring ---
 # Optimized prompts for faster processing and better JSON compliance
 QUALITY_SCORING_USER_PROMPT = """Rate this photo critically. Respond exclusively with JSON in this format:

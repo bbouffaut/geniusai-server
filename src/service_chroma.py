@@ -80,18 +80,33 @@ def delete_image(uuid):
     collection.delete(ids=[uuid])
 
 
-def query_images(query_embedding, n_results, where_clause=None):
+def query_images(query_embedding, n_results, where_clause=None, include_embeddings=False):
     _ensure_initialized()
+    include = ['metadatas', 'distances']
+    if include_embeddings:
+        include.append('embeddings')
+
     try:
         return collection.query(
             where=where_clause,
             query_embeddings=query_embedding,
             n_results=n_results,
-            include=['metadatas', 'distances']
+            include=include
         )
     except Exception as e:
         logger.error(f"Error querying images: {e}", exc_info=True)
-        return {'ids': [[]], 'distances': [[]], 'metadatas': [[]]}
+        fallback = {'ids': [[]], 'distances': [[]], 'metadatas': [[]]}
+        if include_embeddings:
+            fallback['embeddings'] = [[]]
+        return fallback
+
+
+def get_image_metadatas(ids=None):
+    _ensure_initialized()
+    if ids:
+        return collection.get(ids=ids, include=["metadatas"])
+    return collection.get(include=["metadatas"])
+
 
 def get_all_image_ids(has_embedding=None):
     """Get all image IDs, optionally filtered by embedding status.
