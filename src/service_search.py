@@ -6,6 +6,15 @@ import service_chroma as chroma_service
 from config import DEFAULT_MIN_PERTINENCE_SCORE, logger
 import server_lifecycle as server_lifecycle
 
+QUALITY_SCORE_FIELDS = [
+    ("overall", "overall_score"),
+    ("composition", "composition_score"),
+    ("lighting", "lighting_score"),
+    ("motiv", "motiv_score"),
+    ("colors", "colors_score"),
+    ("emotion", "emotion_score"),
+]
+
 
 def _clamp_score(score):
     if not np.isfinite(score):
@@ -78,6 +87,73 @@ def _metadata_value_to_search_text(value):
     if isinstance(value, list):
         return " ".join(_metadata_value_to_search_text(item) for item in value)
     return str(value)
+
+
+def _metadata_by_uuid(metadata_results):
+    metadata_by_id = {}
+    if not metadata_results:
+        return metadata_by_id
+
+    ids = metadata_results.get('ids', [])
+    metadatas = metadata_results.get('metadatas', [])
+    for index, uuid in enumerate(ids):
+        metadata_by_id[uuid] = metadatas[index] if index < len(metadatas) and metadatas[index] else {}
+
+    return metadata_by_id
+
+
+def _display_text(value, fallback="-", max_length=80):
+    if value is None:
+        return fallback
+
+    text = " ".join(str(value).split())
+    if not text:
+        return fallback
+    if len(text) > max_length:
+        return f"{text[:max_length - 3]}..."
+    return text
+
+
+def _display_score(value, digits=4):
+    if value is None:
+        return "-"
+    try:
+        return f"{float(value):.{digits}f}"
+    except (TypeError, ValueError):
+        return "-"
+
+
+def _format_quality_scores(metadata):
+    score_parts = []
+    for label, key in QUALITY_SCORE_FIELDS:
+        score = _display_score(metadata.get(key), digits=2)
+        if score != "-":
+            score_parts.append(f"{label}={score}")
+
+    return ", ".join(score_parts) if score_parts else "quality=n/a"
+
+
+def _log_retrieved_photos(term, final_results, metadata_by_id):
+    if not final_results:
+        logger.info(f"Search results for '{term}': no photos retrieved")
+        return
+
+    lines = [f"Search results for '{term}': {len(final_results)} photo(s) retrieved"]
+    for rank, result in enumerate(final_results, start=1):
+        metadata = metadata_by_id.get(result.get('uuid'), {})
+        title = _display_text(metadata.get('title'), fallback="Untitled", max_length=70)
+        filename = _display_text(metadata.get('filename'), fallback="unknown filename", max_length=60)
+        pertinence_score = _display_score(result.get('pertinence_score'), digits=4)
+        distance = _display_score(result.get('distance'), digits=4)
+        match_type = result.get('match_type', "-")
+        quality_scores = _format_quality_scores(metadata)
+
+        lines.append(
+            f"  {rank:>3}. title=\"{title}\" | filename=\"{filename}\" | "
+            f"pertinence={pertinence_score} | distance={distance} | match={match_type} | {quality_scores}"
+        )
+
+    logger.info("\n".join(lines))
 
 
 def _transform_and_sort_results(results, quality_sort, query_embedding, min_pertinence_score):
@@ -159,6 +235,7 @@ def search_images(term, quality_sort, uuids_to_search, min_pertinence_score=DEFA
     else:
         all_metadata_raw = chroma_service.get_image_metadatas()
 
+    metadata_by_id = _metadata_by_uuid(all_metadata_raw)
     metadata_uuids = set()
     normalized_term = _normalize_search_text(term)
 
@@ -198,6 +275,7 @@ def search_images(term, quality_sort, uuids_to_search, min_pertinence_score=DEFA
     )
 
     logger.info(f"Total results: {len(final_results)} ({len(sorted_semantic_results)} semantic, {len(metadata_only_results)} metadata-only)")
+    _log_retrieved_photos(term, final_results, metadata_by_id)
 
     return final_results
 
