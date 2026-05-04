@@ -3,11 +3,21 @@ from typing import Dict, List, Optional, Any, Union
 from dataclasses import dataclass
 import base64
 import json
-import logging
 from PIL import Image
 import io
 
-from config import ALT_TEXT_PROMPT_ADDON, BASE_PROMPT, CAPTION_TEXT_PROMPT_ADDON, KEYWORDS_TEXT_PROMPT_ADDON, LANGUAGE_TEXT_INSTRUCTION_ADDON, TITLE_TEXT_PROMPT_ADDON, logger
+from config import (
+    ALT_TEXT_PROMPT_ADDON,
+    BASE_PROMPT,
+    CAPTION_TEXT_PROMPT_ADDON,
+    DEBUG_IN_FILE,
+    DEBUG_MODE,
+    KEYWORDS_TEXT_PROMPT_ADDON,
+    LANGUAGE_TEXT_INSTRUCTION_ADDON,
+    TITLE_TEXT_PROMPT_ADDON,
+    logger,
+    raw_debug_logger,
+)
 
 
 # Import prompts from config
@@ -155,19 +165,34 @@ class LLMProviderBase(ABC):
         self.provider_name = self.__class__.__name__
 
     def _log_llm_payload(self, label: str, payload: Dict[str, Any]) -> None:
-        if not logger.isEnabledFor(logging.DEBUG):
-            return
+        if DEBUG_IN_FILE:
+            raw_debug_logger.debug(
+                "%s payload (raw):\n%s",
+                label,
+                json.dumps(
+                    payload,
+                    indent=2,
+                    ensure_ascii=False,
+                    default=self._raw_json_default,
+                ),
+            )
 
-        logger.debug(
-            "%s payload:\n%s",
-            label,
-            json.dumps(
-                self._sanitize_llm_payload(payload),
-                indent=2,
-                ensure_ascii=False,
-                default=str,
-            ),
-        )
+        if DEBUG_MODE:
+            logger.debug(
+                "%s payload:\n%s",
+                label,
+                json.dumps(
+                    self._sanitize_llm_payload(payload),
+                    indent=2,
+                    ensure_ascii=False,
+                    default=str,
+                ),
+            )
+
+    def _raw_json_default(self, value: Any) -> str:
+        if isinstance(value, bytes):
+            return base64.b64encode(value).decode("ascii")
+        return str(value)
 
     def _sanitize_llm_payload(self, value: Any, key: Optional[str] = None) -> Any:
         if isinstance(value, dict):

@@ -7,6 +7,7 @@ DB_PATH="/Volumes/Extreme SSD/Lightroom Plugins/lrgeniusAI-data/lrgenius.db"
 MODEL_CACHE_PATH=""
 FETCH_MODELS_FLAG=""
 DEBUG_FLAG=""
+DEBUG_IN_FILE_PATH=""
 PRELOAD_MODELS_FLAG="--preload-models"
 
 while [[ $# -gt 0 ]]; do
@@ -18,6 +19,14 @@ while [[ $# -gt 0 ]]; do
     --debug)
       DEBUG_FLAG="--debug"
       shift
+      ;;
+    --debug-in-file)
+      if [[ $# -lt 2 ]]; then
+        echo "error: --debug-in-file requires a value" >&2
+        exit 1
+      fi
+      DEBUG_IN_FILE_PATH="$2"
+      shift 2
       ;;
     --preload-models)
       PRELOAD_MODELS_FLAG="--preload-models"
@@ -108,6 +117,10 @@ fi
 
 if [[ -n "$DEBUG_FLAG" ]]; then
   cmd+=("$DEBUG_FLAG")
+fi
+
+if [[ -n "$DEBUG_IN_FILE_PATH" ]]; then
+  cmd+=(--debug-in-file "$DEBUG_IN_FILE_PATH")
 fi
 
 if [[ -n "$PRELOAD_MODELS_FLAG" ]]; then

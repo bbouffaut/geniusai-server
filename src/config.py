@@ -8,6 +8,11 @@ import torch
 parser = argparse.ArgumentParser(description='LrGenius Server')
 parser.add_argument('--db-path', type=str, help='Path to the ChromaDB database folder', required=True)
 parser.add_argument('--debug', action='store_true', help='Enable debug mode with auto-reloading and debug log level')
+parser.add_argument(
+    '--debug-in-file',
+    type=str,
+    help='Write DEBUG logs and full LLM request payloads to this file',
+)
 parser.add_argument('--fetch-models', action='store_true', help='Fetch models from HF-Hub')
 parser.add_argument('--model-cache-path', type=str, help='Path to store/load the embedding model cache')
 parser.add_argument('--preload-models', action='store_true', help='Load embedding models during server startup')
@@ -18,6 +23,13 @@ DB_PATH = args.db_path
 FETCH_MODELS = args.fetch_models
 MODEL_CACHE_PATH = os.path.abspath(os.path.expanduser(args.model_cache_path)) if args.model_cache_path else None
 PRELOAD_MODELS = args.preload_models
+DEBUG_MODE = args.debug
+DEBUG_IN_FILE_PATH = (
+    os.path.abspath(os.path.expanduser(args.debug_in_file))
+    if args.debug_in_file
+    else None
+)
+DEBUG_IN_FILE = DEBUG_IN_FILE_PATH is not None
 
 # --- Code Style Preferences ---
 USE_EMOJIS = False  # Set to False to avoid emojis in logs and output
@@ -118,15 +130,39 @@ MISTRAL_BASE_URL = "https://api.mistral.ai/v1"
 # --- Logger Setup ---
 LOG_PATH = os.path.join(os.path.dirname(DB_PATH), "lrgenius-server.log")
 
-log_level = logging.DEBUG if args.debug else logging.INFO
+log_level = logging.DEBUG if DEBUG_MODE else logging.INFO
+root_log_level = logging.DEBUG if DEBUG_MODE or DEBUG_IN_FILE else logging.INFO
+
+main_file_handler = logging.FileHandler(LOG_PATH, encoding='utf-8')
+main_file_handler.setLevel(log_level)
+
+stream_handler = logging.StreamHandler(sys.stdout)
+stream_handler.setLevel(log_level)
+
+handlers = [
+    main_file_handler,
+    stream_handler
+]
+
+debug_file_handler = None
+if DEBUG_IN_FILE_PATH:
+    debug_log_dir = os.path.dirname(DEBUG_IN_FILE_PATH)
+    if debug_log_dir:
+        os.makedirs(debug_log_dir, exist_ok=True)
+    debug_file_handler = logging.FileHandler(DEBUG_IN_FILE_PATH, encoding='utf-8')
+    debug_file_handler.setLevel(logging.DEBUG)
+    handlers.append(debug_file_handler)
 
 # Configure logging with UTF-8 encoding to handle Unicode characters
 logging.basicConfig(
-    level=log_level,
+    level=root_log_level,
     format="%(asctime)s %(levelname)s %(message)s",
-    handlers=[
-        logging.FileHandler(LOG_PATH, encoding='utf-8'),
-        logging.StreamHandler(sys.stdout)
-    ]
+    handlers=handlers
 )
 logger = logging.getLogger("geniusai-server")
+
+raw_debug_logger = logging.getLogger("geniusai-server.raw-debug")
+raw_debug_logger.setLevel(logging.DEBUG)
+raw_debug_logger.propagate = False
+if debug_file_handler is not None:
+    raw_debug_logger.addHandler(debug_file_handler)

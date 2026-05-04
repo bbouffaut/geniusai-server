@@ -18,6 +18,7 @@ macOS/Linux:
 ./run.sh --db-path <db_path> # specify Genius DB Path
 ./run.sh --model-cache-path <model_cache_path> # specify embedding model cache path
 ./run.sh --debug #Debug mode
+./run.sh --debug-in-file <log_path> # write full debug logs and unredacted LLM request payloads to this file
 ./run.sh --lazy-load-models # skip command-line model preload
 ./run.sh --preload-models #Load models at startup instead of waiting 1st request
 ./run.sh #load models from cache, assuming this is present
