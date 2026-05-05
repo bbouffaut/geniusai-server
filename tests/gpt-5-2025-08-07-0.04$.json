@@ -1,0 +1,35 @@
+{
+    "id": "chatcmpl-DcGSNUJ6Sk8ml4OG0gdjnMINVSyyk",
+    "object": "chat.completion",
+    "created": 1778012095,
+    "model": "gpt-5-2025-08-07",
+    "choices": [
+        {
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": "{\"title\":\"Via ferrata au-dessus d’un lac de montagne\",\"caption\":\"Deux grimpeurs casqués progressent sur une via ferrata le long d’une paroi rocheuse, dominant un grand lac de montagne bleu avec vallée et sommets au loin sous un ciel dégagé.\",\"alt_text\":\"Vue depuis une paroi rocheuse couverte de végétation, avec deux personnes équipées de casques et harnais montant une via ferrata sécurisée par des câbles. Au-dessous, un vaste lac de montagne d’un bleu profond longe une vallée habitée, et une chaîne de montagnes se détache à l’horizon sous un ciel bleu légèrement nuageux.\",\"keywords\":[\"Activities: via ferrata\",\"People: grimpeurs avec casques\",\"Sceneries: lac de montagne\",\"Objects: câble de sécurité\",\"Weather: ciel bleu dégagé\"]}",
+                "refusal": null,
+                "annotations": []
+            },
+            "finish_reason": "stop"
+        }
+    ],
+    "usage": {
+        "prompt_tokens": 1179,
+        "completion_tokens": 2236,
+        "total_tokens": 3415,
+        "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "audio_tokens": 0
+        },
+        "completion_tokens_details": {
+            "reasoning_tokens": 2048,
+            "audio_tokens": 0,
+            "accepted_prediction_tokens": 0,
+            "rejected_prediction_tokens": 0
+        }
+    },
+    "service_tier": "default",
+    "system_fingerprint": null
+}

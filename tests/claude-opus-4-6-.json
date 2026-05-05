@@ -1,0 +1,43 @@
+{
+    "model": "claude-opus-4-6",
+    "id": "msg_01DTKF11ZgNRchiXNaJ8NdFw",
+    "type": "message",
+    "role": "assistant",
+    "content": [
+        {
+            "type": "tool_use",
+            "id": "toolu_01AaMWZUANdA3nm49V191D8z",
+            "name": "record_metadata",
+            "input": {
+                "title": "Via ferrata avec vue sur le Lac du Bourget, Savoie",
+                "caption": "Deux grimpeurs équipés de casques bleus pratiquent la via ferrata sur une paroi rocheuse surplombant le Lac du Bourget, avec les Alpes enneigées en arrière-plan et une végétation verdoyante au printemps.",
+                "alt_text": "Deux personnes portant des casques bleus escaladent une paroi rocheuse en via ferrata, avec une vue panoramique sur le Lac du Bourget, ses eaux turquoise, les montagnes environnantes et les Alpes enneigées au loin, entourés de végétation printanière.",
+                "keywords": [
+                    "Via ferrata",
+                    "Lac du Bourget",
+                    "Alpes",
+                    "Escalade",
+                    "Panorama montagne"
+                ]
+            },
+            "caller": {
+                "type": "direct"
+            }
+        }
+    ],
+    "stop_reason": "tool_use",
+    "stop_sequence": null,
+    "stop_details": null,
+    "usage": {
+        "input_tokens": 1853,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 0
+        },
+        "output_tokens": 272,
+        "service_tier": "standard",
+        "inference_geo": "global"
+    }
+}

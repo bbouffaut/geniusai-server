@@ -17,7 +17,6 @@ model_scripts/**/*.bin
 build/
 dist/
 models/
-tests/results/*.json
 chroma.sqlite3
 lrgenius-server.log
 lrgenius-server.OK
@@ -26,3 +25,8 @@ lrgenius-server.pid
 #Ignore cursor AI rules
 .cursor/rules/codacy.mdc
 output.log
+
+# Keep test fixtures versioned
+!tests/
+!tests/**/
+!tests/**

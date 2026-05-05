@@ -1,0 +1,36 @@
+{
+    "id": "chatcmpl-DcGgYAqjLme9mVRNC4oedUC4QIQqr",
+    "object": "chat.completion",
+    "created": 1778012974,
+    "model": "gpt-4.1-2025-04-14",
+    "choices": [
+        {
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": "{\"title\":\"Via ferrata au-dessus du lac du Bourget\",\"caption\":\"Des personnes pratiquant la via ferrata sur une falaise surplombant le lac du Bourget, entouré de montagnes et de végétation verdoyante, sous un ciel bleu lumineux.\",\"alt_text\":\"Photo montrant des personnes équipées de harnais escaladant une paroi rocheuse surplombant le lac du Bourget, entouré de montagnes et de forêts, avec un ciel bleu et quelques nuages.\",\"keywords\":[\n  \"Via ferrata\",\n  \"Humains\",\n  \"Lac du Bourget\",\n  \"Montagnes\",\n  \"Beau temps\"\n]}",
+                "refusal": null,
+                "annotations": []
+            },
+            "logprobs": null,
+            "finish_reason": "stop"
+        }
+    ],
+    "usage": {
+        "prompt_tokens": 1375,
+        "completion_tokens": 139,
+        "total_tokens": 1514,
+        "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "audio_tokens": 0
+        },
+        "completion_tokens_details": {
+            "reasoning_tokens": 0,
+            "audio_tokens": 0,
+            "accepted_prediction_tokens": 0,
+            "rejected_prediction_tokens": 0
+        }
+    },
+    "service_tier": "default",
+    "system_fingerprint": "fp_8b178d8700"
+}

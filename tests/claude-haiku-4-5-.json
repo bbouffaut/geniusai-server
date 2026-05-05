@@ -1,0 +1,48 @@
+{
+    "model": "claude-haiku-4-5-20251001",
+    "id": "msg_011YMEVVkF5xVCBPGvZsKfp1",
+    "type": "message",
+    "role": "assistant",
+    "content": [
+        {
+            "type": "tool_use",
+            "id": "toolu_01XHE4EJa4L7CPKm8QHHsQ86",
+            "name": "record_metadata",
+            "input": {
+                "title": "Vue panoramique du lac d'Annecy depuis les falaises rocheuses",
+                "caption": "Deux randonneurs explorent les falaises rocheuses surplombant le lac d'Annecy turquoise, entouré de montagnes enneigées et de végétation dense en été",
+                "alt_text": "Vue aérienne du lac d'Annecy avec ses eaux bleu turquoise, encadré par des forêts vertes et des montagnes enneigées. Au premier plan, deux personnes font de l'escalade sur une paroi rocheuse grise, sous le couvert d'arbres. Ciel bleu avec nuages légers.",
+                "keywords": [
+                    "Escalade en falaise",
+                    "Lac d'Annecy",
+                    "Randonnée montagne",
+                    "Alpes françaises",
+                    "Paysage alpin",
+                    "Végétation forestière",
+                    "Activité outdoor",
+                    "Panorama lacustre",
+                    "Météo ensoleillée",
+                    "Roches calcaires"
+                ]
+            },
+            "caller": {
+                "type": "direct"
+            }
+        }
+    ],
+    "stop_reason": "tool_use",
+    "stop_sequence": null,
+    "stop_details": null,
+    "usage": {
+        "input_tokens": 1852,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 0
+        },
+        "output_tokens": 312,
+        "service_tier": "standard",
+        "inference_geo": "not_available"
+    }
+}
