@@ -244,23 +244,25 @@ class MistralProvider(LLMProviderBase):
         Returns:
             List of model identifiers
         """
-        fallback_models = [
-            "mistral-large-2512",
-            "mistral-medium-2508",
-            "mistral-small-2506",
-            "ministral-14b-2512",
-            "ministral-8b-2512",
-            "ministral-3b-2512",
-        ]
-
         api_key = self._get_api_key(None)
         if not api_key:
-            logger.info(f"Returning {len(fallback_models)} fallback Mistral models")
-            return fallback_models
+            logger.info("Mistral API key not configured; returning no Mistral models")
+            return []
 
         try:
+            models_url = f"{self.base_url}/models"
+            self._log_llm_payload(
+                "Mistral list models request",
+                {
+                    "method": "GET",
+                    "url": models_url,
+                    "headers": {
+                        "Authorization": f"Bearer <redacted; length={len(api_key)}>",
+                    },
+                },
+            )
             response = requests.get(
-                f"{self.base_url}/models",
+                models_url,
                 headers={"Authorization": f"Bearer {api_key}"},
                 timeout=self.timeout,
             )
@@ -280,11 +282,11 @@ class MistralProvider(LLMProviderBase):
                 logger.info(f"Returning {len(dynamic_models)} Mistral models from API")
                 return dynamic_models
 
-            logger.warning("Mistral API returned no matching vision chat models; returning fallback models")
+            logger.warning("Mistral API returned no matching vision chat models")
         except Exception as e:
             logger.error(f"Error listing Mistral models from API: {e}", exc_info=True)
 
-        return fallback_models
+        return []
 
     def _get_api_key(self, request_api_key: Optional[str]) -> Optional[str]:
         if request_api_key:

@@ -342,25 +342,19 @@ class ChatGPTProvider(LLMProviderBase):
         Returns:
             List of model identifiers
         """
-        fallback_models = [
-            'gpt-4.1',
-            'gpt-4.1-mini',
-            'gpt-5',
-            'gpt-5-mini',
-            'gpt-5-nano',
-            'gpt-5.1',
-            'gpt-5.2',
-        ]
-
         if not self.api_key:
-            logger.info(f"Returning {len(fallback_models)} fallback ChatGPT models")
-            return fallback_models
+            logger.info("OpenAI API key not configured; returning no ChatGPT models")
+            return []
 
         if not self._ensure_client():
-            logger.warning("OpenAI API key is present, but client initialization failed; returning fallback models")
-            return fallback_models
+            logger.warning("OpenAI API key is present, but client initialization failed; returning no ChatGPT models")
+            return []
 
         try:
+            self._log_llm_payload(
+                "OpenAI list models request",
+                {"operation": "client.models.list"},
+            )
             response = self.client.models.list()
             dynamic_models = []
             for model in getattr(response, "data", response):
@@ -373,11 +367,11 @@ class ChatGPTProvider(LLMProviderBase):
                 logger.info(f"Returning {len(dynamic_models)} ChatGPT models from OpenAI API")
                 return dynamic_models
 
-            logger.warning("OpenAI API returned no matching vision chat models; returning fallback models")
+            logger.warning("OpenAI API returned no matching vision chat models")
         except Exception as e:
             logger.error(f"Error listing OpenAI models from API: {e}", exc_info=True)
 
-        return fallback_models
+        return []
 
     def _extract_model_id(self, model: Any) -> str:
         if isinstance(model, dict):

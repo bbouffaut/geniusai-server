@@ -9,6 +9,18 @@ from server_lifecycle import get_model, start_download_embedding_model, get_down
 
 server_bp = Blueprint('server', __name__)
 
+
+def _request_data():
+    if request.is_json:
+        return request.get_json(silent=True) or {}
+    if request.form:
+        return request.form
+    return {}
+
+
+def _request_value(data, key):
+    return request.args.get(key) or data.get(key)
+
 @server_bp.route('/ping', methods=['GET'])
 def ping():
     #logger.info("Ping request received")
@@ -33,14 +45,15 @@ def list_models():
     Returns all available multimodal models from all providers.
     
     Dynamically checks availability of Ollama and LM Studio on each request.
-    Uses provider APIs when cloud API keys are supplied, with static fallbacks
-    when keys are missing or listing fails. Always filters for multimodal
+    Uses provider APIs when cloud API keys are supplied. Providers return an
+    empty list when no models are returned. Always filters for multimodal
     (vision-capable) models only.
     
-    POST JSON: { 
+    POST JSON or form data: { 
         openai_apikey?: str,  # Optional OpenAI API key for ChatGPT models
         gemini_apikey?: str,  # Optional Gemini API key for Gemini models
-        mistral_apikey?: str  # Optional Mistral API key for Mistral models
+        mistral_apikey?: str,  # Optional Mistral API key for Mistral models
+        anthropic_apikey?: str  # Optional Anthropic API key for Claude models
     }
     
     Returns: {
@@ -50,21 +63,16 @@ def list_models():
             "lmstudio": [...],
             "chatgpt": [...],
             "gemini": [...],
-            "mistral": [...]
+            "mistral": [...],
+            "anthropic": [...]
         }
     }
     """
-    # Parse API keys from request
-    if request.method == 'POST':
-        data = request.get_json(silent=True) or {}
-        openai_apikey = data.get('openai_apikey')
-        gemini_apikey = data.get('gemini_apikey')
-        mistral_apikey = data.get('mistral_apikey')
-    else:
-        # Support GET for backward compatibility
-        openai_apikey = request.args.get('openai_apikey')
-        gemini_apikey = request.args.get('gemini_apikey')
-        mistral_apikey = request.args.get('mistral_apikey')
+    data = _request_data()
+    openai_apikey = _request_value(data, 'openai_apikey')
+    gemini_apikey = _request_value(data, 'gemini_apikey')
+    mistral_apikey = _request_value(data, 'mistral_apikey')
+    anthropic_apikey = _request_value(data, 'anthropic_apikey')
 
     logger.info("Models request received - checking all providers")
     
@@ -75,6 +83,7 @@ def list_models():
             openai_apikey=openai_apikey,
             gemini_apikey=gemini_apikey,
             mistral_apikey=mistral_apikey,
+            anthropic_apikey=anthropic_apikey,
         )
         return jsonify({"models": models})
     except Exception as e:

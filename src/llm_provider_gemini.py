@@ -569,23 +569,19 @@ class GeminiProvider(LLMProviderBase):
         Returns:
             List of model identifiers
         """
-        fallback_models = [
-            'gemini-2.5-flash-lite',
-            'gemini-2.5-flash',
-            'gemini-2.5-pro',
-            'gemini-3-flash-preview',
-            'gemini-3-pro-preview',
-        ]
-
         if not self.api_key:
-            logger.info(f"Returning {len(fallback_models)} fallback Gemini models")
-            return fallback_models
+            logger.info("Gemini API key not configured; returning no Gemini models")
+            return []
 
         if not self._ensure_client():
-            logger.warning("Gemini API key is present, but client initialization failed; returning fallback models")
-            return fallback_models
+            logger.warning("Gemini API key is present, but client initialization failed; returning no Gemini models")
+            return []
 
         try:
+            self._log_llm_payload(
+                "Gemini list models request",
+                {"operation": "client.models.list"},
+            )
             dynamic_models = []
             for model in self.client.models.list():
                 model_name = self._normalize_model_name(self._extract_model_name(model))
@@ -597,11 +593,11 @@ class GeminiProvider(LLMProviderBase):
                 logger.info(f"Returning {len(dynamic_models)} Gemini models from API")
                 return dynamic_models
 
-            logger.warning("Gemini API returned no matching vision generation models; returning fallback models")
+            logger.warning("Gemini API returned no matching vision generation models")
         except Exception as e:
             logger.error(f"Error listing Gemini models from API: {e}", exc_info=True)
 
-        return fallback_models
+        return []
 
     def _extract_model_name(self, model: Any) -> str:
         if isinstance(model, dict):

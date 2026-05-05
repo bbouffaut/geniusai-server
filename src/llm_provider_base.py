@@ -151,7 +151,7 @@ class QualityScoreResponse:
 class LLMProviderBase(ABC):
     """
     Abstract base class for all LLM providers.
-    Each provider (Qwen, Ollama, LM Studio, ChatGPT, Gemini, Mistral) implements this interface.
+    Each provider (Qwen, Ollama, LM Studio, ChatGPT, Gemini, Mistral, Anthropic) implements this interface.
     """
     
     def __init__(self, config: Dict[str, Any]):

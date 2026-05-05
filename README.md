@@ -18,7 +18,7 @@ macOS/Linux:
 ./run.sh --db-path <db_path> # specify Genius DB Path
 ./run.sh --model-cache-path <model_cache_path> # specify embedding model cache path
 ./run.sh --debug #Debug mode
-./run.sh --debug-in-file <log_path> # write full debug logs and unredacted LLM request payloads to this file
+./run.sh --debug-in-file <log_path> # write full debug logs, incoming HTTP requests, and LLM provider request payloads to this file
 ./run.sh --lazy-load-models # skip command-line model preload
 ./run.sh --preload-models #Load models at startup instead of waiting 1st request
 ./run.sh #load models from cache, assuming this is present
@@ -38,4 +38,4 @@ Indexing embeds generated photo metadata, not the image pixels. The default embe
 ### Models selection
 - is done at the client side
 - Default is ollama -> Needs to have a ollama listening locally on 11434 port
-- Cloud providers can receive their API key per request through `api_key`; `/models` also accepts provider-specific keys such as `openai_apikey`, `gemini_apikey`, and `mistral_apikey`. When a key is provided, `/models` asks the provider API for available models and falls back to the built-in list if listing is unavailable.
+- Cloud providers can receive their API key per request through `api_key`; `/models` also accepts provider-specific keys such as `openai_apikey`, `gemini_apikey`, `mistral_apikey`, and `anthropic_apikey`. When a key is provided, `/models` asks the provider API for available models. Providers return an empty list when no models are returned.

@@ -17,6 +17,7 @@ from llm_provider_lmstudio import LMStudioProvider
 from llm_provider_chatgpt import ChatGPTProvider
 from llm_provider_gemini import GeminiProvider
 from llm_provider_mistral import MistralProvider
+from llm_provider_anthropic import AnthropicProvider
 from config import logger, DEFAULT_METADATA_PROVIDER, DEFAULT_METADATA_LANGUAGE, DEFAULT_KEYWORD_CATEGORIES
 from PIL import Image, ExifTags
 import io
@@ -115,6 +116,17 @@ class AnalysisService:
                 logger.info("○ Mistral provider registered (API key not configured, can be provided later)")
         except Exception as e:
             logger.error(f"✗ Failed to initialize Mistral provider: {e}")
+
+        # Anthropic (cloud) - Always add to providers, API key can be provided later
+        try:
+            anthropic = AnthropicProvider({})
+            self.providers['anthropic'] = anthropic
+            if anthropic.is_available():
+                logger.info("✓ Anthropic provider initialized")
+            else:
+                logger.info("○ Anthropic provider registered (API key not configured, can be provided later)")
+        except Exception as e:
+            logger.error(f"✗ Failed to initialize Anthropic provider: {e}")
         
         if not self.providers:
             logger.error("⚠️  No LLM providers available! Metadata generation will not work.")
@@ -336,26 +348,30 @@ class AnalysisService:
         openai_apikey: Optional[str] = None,
         gemini_apikey: Optional[str] = None,
         mistral_apikey: Optional[str] = None,
+        anthropic_apikey: Optional[str] = None,
     ) -> Dict[str, List[str]]:
         """
         Return all available multimodal (vision-capable) models from all providers.
         """
         result: Dict[str, List[str]] = {}
+        cloud_provider_api_keys = {
+            'chatgpt': openai_apikey,
+            'gemini': gemini_apikey,
+            'mistral': mistral_apikey,
+            'anthropic': anthropic_apikey,
+        }
+
         for provider_name, provider_instance in self.providers.items():
             try:
-                if provider_name == 'chatgpt' and openai_apikey:
-                    provider_instance.api_key = openai_apikey
-                if provider_name == 'gemini' and gemini_apikey:
-                    provider_instance.api_key = gemini_apikey
-                if provider_name == 'mistral' and mistral_apikey:
-                    provider_instance.api_key = mistral_apikey
+                if provider_name in cloud_provider_api_keys:
+                    provider_instance.api_key = cloud_provider_api_keys[provider_name]
                 
                 if provider_name in ['ollama', 'lmstudio'] and not provider_instance.is_available():
                     result[provider_name] = []
                     continue
                 
                 models = provider_instance.list_available_models()
-                result[provider_name] = models
+                result[provider_name] = models if models else []
             except Exception as e:
                 logger.error(f"Error listing models for provider {provider_name}: {e}", exc_info=True)
                 result[provider_name] = []

@@ -126,6 +126,8 @@ DEFAULT_KEYWORD_CATEGORIES = [
 LMSTUDIO_HOST = "localhost:1234"
 OLLAMA_BASE_URL = "http://localhost:11434"
 MISTRAL_BASE_URL = "https://api.mistral.ai/v1"
+ANTHROPIC_BASE_URL = "https://api.anthropic.com/v1"
+ANTHROPIC_API_VERSION = "2023-06-01"
 
 # --- Logger Setup ---
 LOG_PATH = os.path.join(os.path.dirname(DB_PATH), "lrgenius-server.log")
