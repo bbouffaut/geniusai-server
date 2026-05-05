@@ -1,0 +1,43 @@
+{
+    "model": "claude-sonnet-4-5-20250929",
+    "id": "msg_01DhxcM9XCi2hjEDLysijmAL",
+    "type": "message",
+    "role": "assistant",
+    "content": [
+        {
+            "type": "tool_use",
+            "id": "toolu_01EdYJPTr2HDyb1mL6z4PVv5",
+            "name": "record_metadata",
+            "input": {
+                "title": "Randonneurs sur un sentier de montagne surplombant un lac bleu",
+                "caption": "Deux randonneurs escaladent un rocher sur un sentier de montagne avec vue panoramique sur un grand lac bleu entouré de montagnes et de végétation méditerranéenne sous un ciel bleu",
+                "alt_text": "Vue panoramique d'un lac bleu entre les montagnes, avec deux randonneurs en train d'escalader un rocher sur un sentier bordé d'arbres et de végétation verte, ciel bleu avec nuages blancs",
+                "keywords": [
+                    "Activities: randonnée, escalade",
+                    "Sceneries: montagne, lac, paysage, panorama",
+                    "Plants: arbres, végétation",
+                    "People: randonneurs",
+                    "Weather: ciel bleu, nuages"
+                ]
+            },
+            "caller": {
+                "type": "direct"
+            }
+        }
+    ],
+    "stop_reason": "tool_use",
+    "stop_sequence": null,
+    "stop_details": null,
+    "usage": {
+        "input_tokens": 1852,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 0
+        },
+        "output_tokens": 265,
+        "service_tier": "standard",
+        "inference_geo": "not_available"
+    }
+}
