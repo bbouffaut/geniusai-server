@@ -25,8 +25,3 @@ lrgenius-server.pid
 #Ignore cursor AI rules
 .cursor/rules/codacy.mdc
 output.log
-
-# Keep test fixtures versioned
-!tests/
-!tests/**/
-!tests/**
