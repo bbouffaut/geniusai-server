@@ -7,7 +7,7 @@ import_bp = Blueprint('import', __name__)
 @import_bp.route('/import/metadata', methods=['POST'])
 def import_metadata_batch():
     """
-    Receives a batch of metadata from previous LLM runs and imports them to ChromaDB.
+    Receives a batch of metadata from previous LLM runs and imports them to the database.
     """
     logger.info("Import metadata request received")
     data = request.get_json()

@@ -25,3 +25,4 @@ lrgenius-server.pid
 #Ignore cursor AI rules
 .cursor/rules/codacy.mdc
 output.log
+cache/

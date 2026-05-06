@@ -9,6 +9,8 @@ import datetime
 from config import (
     DEBUG_IN_FILE,
     DEBUG_IN_FILE_PATH,
+    POSTGRES_DATABASE_NAME,
+    POSTGRES_URL,
     PRELOAD_MODELS,
     args,
     logger,
@@ -172,7 +174,8 @@ if __name__ == "__main__":
     logger.info("=" * 60)
     logger.info("LrGenius Server starting...")
     logger.info(f"Python: {sys.version.split()[0]}")
-    logger.info(f"Database: {args.db_path}")
+    logger.info(f"PostgreSQL: ${POSTGRES_URL}")
+    logger.info(f"Database: {POSTGRES_DATABASE_NAME}")
     if DEBUG_IN_FILE_PATH:
         logger.warning(
             "Raw debug logging enabled; unredacted LLM request payloads "
@@ -206,9 +209,9 @@ if __name__ == "__main__":
         else:
             logger.info("Starting production server on http://127.0.0.1:19819")
             if PRELOAD_MODELS:
-                logger.info("Embedding model preloaded; ChromaDB will load on first request")
+                logger.info("Embedding model preloaded; PostgreSQL will initialize on first request")
             else:
-                logger.info("Heavy modules (ChromaDB, AI models) will load on first request")
+                logger.info("Heavy modules (PostgreSQL, AI models) will load on first request")
             serve(app, host="127.0.0.1", port=19819, threads=4)
     finally:
         logger.info("Shutting down server...")

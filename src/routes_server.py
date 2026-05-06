@@ -1,6 +1,7 @@
 
 from flask import Blueprint, jsonify, request
-import service_chroma as chroma_service
+#import service_chroma as chroma_service
+import service_postgre as postgre_service
 
 import server_lifecycle
 from config import logger
@@ -35,7 +36,7 @@ def shutdown():
 @server_bp.route('/stats', methods=['GET'])
 def stats():
     logger.info("Statistics request received")
-    results = chroma_service.get_db_stats()
+    results = postgre_service.get_db_stats()
     return jsonify(results)
 
 

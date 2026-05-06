@@ -2,11 +2,48 @@ import argparse
 import logging
 import sys
 import os
+import re
 import torch
+
+# --- Model & Path Definitions ---
+TEXT_EMBEDDING_MODEL_ID = "Qwen/Qwen3-Embedding-0.6B"
+TEXT_EMBEDDING_DIMENSION = 1024
+TEXT_EMBEDDING_QUERY_INSTRUCTION = "Given a photo metadata search query, retrieve relevant photo metadata records"
+TEXT_EMBEDDING_MAX_LENGTH = 8192
+
+
+def _normalize_database_part(value):
+    normalized = re.sub(r"[^a-zA-Z0-9_.-]+", "_", str(value).strip().lower())
+    normalized = re.sub(r"_+", "_", normalized).strip("_.-")
+    return normalized or "default"
+
+
+def build_database_name(llm_id, embedding_id):
+    base_name = f"{_normalize_database_part(llm_id)}-{_normalize_database_part(embedding_id)}"
+    return base_name[:63].rstrip("_.-") or "geniusai"
+
 
 # --- Argument Parsing ---
 parser = argparse.ArgumentParser(description='LrGenius Server')
-parser.add_argument('--db-path', type=str, help='Path to the ChromaDB database folder', required=True)
+parser.add_argument(
+    '--db-path',
+    type=str,
+    help='Runtime data directory for logs and pid files (kept for backwards compatibility)',
+)
+parser.add_argument('--data-dir', type=str, help='Runtime data directory for logs and pid files')
+parser.add_argument(
+    '--postgres-url',
+    type=str,
+    default=os.environ.get("GENIUSAI_POSTGRES_URL", "postgresql://localhost:5432/postgres"),
+    help='PostgreSQL connection URL used to create/connect databases',
+)
+parser.add_argument(
+    '--database-name',
+    type=str,
+    default=os.environ.get("GENIUSAI_DATABASE_NAME"),
+    help='PostgreSQL database name to use. Defaults to <llm-id>-<embedding-id>.',
+)
+
 parser.add_argument('--debug', action='store_true', help='Enable debug mode with auto-reloading and debug log level')
 parser.add_argument(
     '--debug-in-file',
@@ -19,7 +56,10 @@ parser.add_argument('--preload-models', action='store_true', help='Load embeddin
 args = parser.parse_args()
 
 # --- Constants ---
-DB_PATH = args.db_path
+DATA_DIR = os.path.abspath(os.path.expanduser(args.data_dir or args.db_path or os.getcwd()))
+DB_PATH = DATA_DIR
+POSTGRES_URL = args.postgres_url
+POSTGRES_DATABASE_NAME = args.database_name or build_database_name(args.llm_id, args.embedding_id)
 FETCH_MODELS = args.fetch_models
 MODEL_CACHE_PATH = os.path.abspath(os.path.expanduser(args.model_cache_path)) if args.model_cache_path else None
 PRELOAD_MODELS = args.preload_models
@@ -54,13 +94,6 @@ elif sys.platform == "win32":  # Windows
     TORCH_DEVICE = "cpu"
 else:  # Linux and other Unix-like platforms
     TORCH_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-
-
-
-TEXT_EMBEDDING_MODEL_ID = "Qwen/Qwen3-Embedding-0.6B"
-TEXT_EMBEDDING_DIMENSION = 1024
-TEXT_EMBEDDING_QUERY_INSTRUCTION = "Given a photo metadata search query, retrieve relevant photo metadata records"
-TEXT_EMBEDDING_MAX_LENGTH = 8192
 
 # Legacy names kept for compatibility with older scripts/imports.
 CLIP_MODEL_NAME = TEXT_EMBEDDING_MODEL_ID
@@ -130,7 +163,8 @@ ANTHROPIC_BASE_URL = "https://api.anthropic.com/v1"
 ANTHROPIC_API_VERSION = "2023-06-01"
 
 # --- Logger Setup ---
-LOG_PATH = os.path.join(os.path.dirname(DB_PATH), "lrgenius-server.log")
+os.makedirs(DATA_DIR, exist_ok=True)
+LOG_PATH = os.path.join(DATA_DIR, "lrgenius-server.log")
 
 log_level = logging.DEBUG if DEBUG_MODE else logging.INFO
 root_log_level = logging.DEBUG if DEBUG_MODE or DEBUG_IN_FILE else logging.INFO

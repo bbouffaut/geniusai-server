@@ -1,5 +1,6 @@
 from config import TEXT_EMBEDDING_MODEL_ID, logger
-import service_chroma as chroma_service
+#import service_chroma as chroma_service
+import service_postgre as postgre_service
 from service_metadata import get_analysis_service
 import server_lifecycle as server_lifecycle
 import json
@@ -148,7 +149,7 @@ def process_image_task(
         if not regenerate_metadata:
             logger.info("Checking existing records to determine what needs generation...")
             for _, uuid, _ in image_triplets:
-                existing_record = chroma_service.get_image(uuid)
+                existing_record = postgre_service.get_image(uuid)
                 if existing_record and existing_record['ids']:
                     existing_records[uuid] = existing_record['metadatas'][0] if existing_record['metadatas'] else {}
         
@@ -319,20 +320,20 @@ def process_image_task(
                 
                 if existing and not regenerate_metadata:
                     logger.info(f"UUID {uuid} already exists. Updating (embedding: {update_embedding is not None}).")
-                    chroma_service.update_image(uuid, main_metadata, embedding=update_embedding, document=document)
+                    postgre_service.update_image(uuid, main_metadata, embedding=update_embedding, document=document)
                 elif regenerate_metadata:
                     logger.info(f"UUID {uuid} set to regenerate. Updating (embedding: {update_embedding is not None}).")
-                    if chroma_service.get_image(uuid) is not None:
-                        chroma_service.update_image(uuid, main_metadata, embedding=update_embedding, document=document)
+                    if postgre_service.get_image(uuid) is not None:
+                        postgre_service.update_image(uuid, main_metadata, embedding=update_embedding, document=document)
                     else:
-                        chroma_service.add_image(uuid, embedding, main_metadata, document=document)
+                        postgre_service.add_image(uuid, embedding, main_metadata, document=document)
                 else:
                     # New record
                     if embedding is not None:
                         logger.info(f"UUID {uuid} is new. Indexing with metadata embeddings.")
                     else:
                         logger.info(f"UUID {uuid} is new. Indexing metadata-only entry (no embedding).")
-                    chroma_service.add_image(uuid, embedding, main_metadata, document=document)
+                    postgre_service.add_image(uuid, embedding, main_metadata, document=document)
                 
                 success_count += 1
 

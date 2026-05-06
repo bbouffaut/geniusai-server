@@ -3,7 +3,8 @@ import time
 from collections import deque
 import os
 
-import service_chroma as chroma_service
+#import service_chroma as postgre_service
+import service_postgre as postgre_service
 from config import DEFAULT_METADATA_LANGUAGE, logger
 from service_index import process_image_task
 import base64
@@ -247,8 +248,8 @@ def remove_image():
     uuid = request.json.get('uuid')
     
     try:
-        chroma_service.delete_image(uuid)
-        logger.info(f"Image ID {uuid} removed from ChromaDB.")
+        postgre_service.delete_image(uuid)
+        logger.info(f"Image ID {uuid} removed from PostgreSQL.")
         return jsonify({"status": "removed", "uuid": uuid})
     except Exception as e:
         logger.error(f"Error removing image {uuid}: {e}")
@@ -277,8 +278,8 @@ def get_photo_data():
     uuid = request.json.get('uuid')
     
     try:
-        # Get photo data from ChromaDB
-        photo_data = chroma_service.get_image(uuid)
+        # Get photo data from PostgreSQL.
+        photo_data = postgre_service.get_image(uuid)
         logger.debug(f"Retrieved photo data for UUID {uuid}: {photo_data}")
         
         if not photo_data or not photo_data['ids']:
@@ -361,6 +362,6 @@ def get_ids():
         has_embedding = has_embedding_param.lower() == 'true'
         logger.info(f"Filtering IDs by has_embedding={has_embedding}")
     
-    ids_data = chroma_service.get_all_image_ids(has_embedding=has_embedding)
+    ids_data = postgre_service.get_all_image_ids(has_embedding=has_embedding)
     logger.info(f"Returning {len(ids_data)} image IDs")
     return jsonify(ids_data)

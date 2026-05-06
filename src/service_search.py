@@ -2,7 +2,8 @@ import json
 import numpy as np
 import unicodedata
 
-import service_chroma as chroma_service
+#import service_chroma as chroma_service
+import service_postgre as postgre_service
 from config import DEFAULT_MIN_PERTINENCE_SCORE, logger
 import server_lifecycle as server_lifecycle
 
@@ -23,11 +24,10 @@ def _clamp_score(score):
 
 
 def _score_from_distance(distance):
-    # Chroma's default L2 distance is equivalent to squared L2 for normalized
-    # vectors, so cosine similarity is 1 - distance / 2.
+    # pgvector cosine distance is 1 - cosine similarity.
     if distance is None:
         return 0.0
-    return _clamp_score(1.0 - (float(distance) / 2.0))
+    return _clamp_score(1.0 - float(distance))
 
 
 def _score_from_embedding(query_embedding, result_embedding, distance):
@@ -157,7 +157,7 @@ def _log_retrieved_photos(term, final_results, metadata_by_id):
 
 
 def _transform_and_sort_results(results, quality_sort, query_embedding, min_pertinence_score):
-    """Transforms ChromaDB results and sorts them based on quality or distance."""
+    """Transforms vector DB results and sorts them based on quality or distance."""
     if not results:
         return []
 
@@ -207,7 +207,7 @@ def search_images(term, quality_sort, uuids_to_search, min_pertinence_score=DEFA
     # 1. Semantic search over metadata text embeddings
     query_embedding = server_lifecycle.embed_query(term)
     if query_embedding is not None:
-        db_results = chroma_service.query_images(
+        db_results = postgre_service.query_images(
             query_embedding=query_embedding,
             n_results=300,
             where_clause={"uuid": {"$in": uuids_to_search}} if uuids_to_search else None,
@@ -231,9 +231,9 @@ def search_images(term, quality_sort, uuids_to_search, min_pertinence_score=DEFA
 
     if uuids_to_search:
         target_uuids = list(uuids_to_search)
-        all_metadata_raw = chroma_service.get_image_metadatas(ids=target_uuids)
+        all_metadata_raw = postgre_service.get_image_metadatas(ids=target_uuids)
     else:
-        all_metadata_raw = chroma_service.get_image_metadatas()
+        all_metadata_raw = postgre_service.get_image_metadatas()
 
     metadata_by_id = _metadata_by_uuid(all_metadata_raw)
     metadata_uuids = set()
@@ -285,7 +285,7 @@ def group_similar_images(uuids, phash_threshold, clip_threshold, time_delta):
     logger.info(f"Grouping {len(uuids)} UUIDs with phash_threshold='{phash_threshold}', clip_threshold='{clip_threshold}', and time_delta='{time_delta}s'.")
 
     try:
-        grouped_results = chroma_service.group_and_sort_images(uuids, phash_threshold, clip_threshold, time_delta)
+        grouped_results = postgre_service.group_and_sort_images(uuids, phash_threshold, clip_threshold, time_delta)
         return grouped_results
     except Exception as e:
         logger.error(f"Error during similarity grouping: {str(e)}")
