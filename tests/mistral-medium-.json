@@ -1,0 +1,25 @@
+{
+    "id": "9be1bb05492e4226ad3bf58ab5e3c5e0",
+    "created": 1778251475,
+    "model": "mistral-medium-latest",
+    "usage": {
+        "prompt_tokens": 1163,
+        "total_tokens": 1379,
+        "completion_tokens": 216,
+        "prompt_tokens_details": {
+            "cached_tokens": 0
+        }
+    },
+    "object": "chat.completion",
+    "choices": [
+        {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+                "role": "assistant",
+                "tool_calls": null,
+                "content": "{\n  \"title\": \"Vue panoramique d'un lac de montagne\",\n  \"caption\": \"Deux personnes font de l'escalade sur une falaise avec une vue imprenable sur un lac de montagne.\",\n  \"alt_text\": \"Deux personnes en train de grimper sur une falaise avec une vue sur un lac bleu entouré de montagnes et de végétation dense. Le ciel est bleu avec quelques nuages.\",\n  \"keywords\": {\n    \"Activities\": [\"escalade\"],\n    \"Animals\": [],\n    \"Buildings\": [],\n    \"Companies\": [],\n    \"Location\": [\"Alpes\"],\n    \"Moods\": [\"aventure\", \"nature\"],\n    \"Objects\": [\"cordages\", \"casques\"],\n    \"People\": [\"hommes\"],\n    \"Plants\": [\"arbres\", \"arbustes\"],\n    \"Sceneries\": [\"lac\", \"montagnes\", \"ciel bleu\"],\n    \"Texts\": [],\n    \"Vehicles\": [],\n    \"Weather\": [\"ensoleillé\"]\n  }\n}"
+            }
+        }
+    ]
+}

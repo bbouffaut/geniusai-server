@@ -1,0 +1,25 @@
+{
+    "id": "497ccedb826d4b2eb18878542c999688",
+    "created": 1778251771,
+    "model": "mistral-large-latest",
+    "usage": {
+        "prompt_tokens": 1163,
+        "total_tokens": 1406,
+        "completion_tokens": 243,
+        "prompt_tokens_details": {
+            "cached_tokens": 0
+        }
+    },
+    "object": "chat.completion",
+    "choices": [
+        {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+                "role": "assistant",
+                "tool_calls": null,
+                "content": "{\"title\": \"Randonnée avec vue sur un lac de montagne alpin\", \"caption\": \"Des randonneurs observent un lac de montagne entouré de sommets alpins sous un ciel dégagé.\", \"alt_text\": \"Trois personnes en tenue de randonnée observent un grand lac bleu entouré de montagnes verdoyantes et de sommets rocheux sous un ciel partiellement nuageux.\", \"keywords\": {\"Activities\": [\"randonnée\", \"observation\", \"trekking\"], \"Animals\": [], \"Buildings\": [], \"Companies\": [], \"Location\": [\"Alpes\", \"lac de montagne\"], \"Moods\": [\"calme\", \"sereine\", \"aventure\"], \"Objects\": [\"sac à dos\", \"chapeau\", \"vêtements de randonnée\"], \"People\": [\"randonneurs\", \"groupe\"], \"Plants\": [\"arbustes\", \"végétation alpine\"], \"Sceneries\": [\"lac\", \"montagnes\", \"vallée\", \"ciel bleu\"], \"Texts\": [], \"Vehicles\": [], \"Weather\": [\"ciel dégagé\", \"ensoleillé\"]}}"
+            }
+        }
+    ]
+}
