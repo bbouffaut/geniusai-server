@@ -9,8 +9,8 @@ import datetime
 from config import (
     DEBUG_IN_FILE,
     DEBUG_IN_FILE_PATH,
-    POSTGRES_DATABASE_NAME,
-    POSTGRES_URL,
+    POSTGRE_DATABASE_NAME,
+    POSTGRE_URL,
     PRELOAD_MODELS,
     args,
     logger,
@@ -174,8 +174,8 @@ if __name__ == "__main__":
     logger.info("=" * 60)
     logger.info("LrGenius Server starting...")
     logger.info(f"Python: {sys.version.split()[0]}")
-    logger.info(f"PostgreSQL: ${POSTGRES_URL}")
-    logger.info(f"Database: {POSTGRES_DATABASE_NAME}")
+    logger.info(f"PostgreSQL: ${POSTGRE_URL}")
+    logger.info(f"Database: {POSTGRE_DATABASE_NAME}")
     if DEBUG_IN_FILE_PATH:
         logger.warning(
             "Raw debug logging enabled; unredacted LLM request payloads "

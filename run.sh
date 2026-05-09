@@ -3,7 +3,7 @@ set -euo pipefail
 
 export KMP_DUPLICATE_LIB_OK=TRUE
 
-POSTGRES_URL="${GENIUSAI_POSTGRES_URL:-postgresql://localhost:5432/postgres}"
+POSTGRE_URL="${GENIUSAI_POSTGRE_URL:-postgresql://localhost:5432/postgres}"
 DATABASE_NAME="${GENIUSAI_DATABASE_NAME:-}"
 LLM_ID="${GENIUSAI_LLM_ID:-ollama}"
 EMBEDDING_ID="${GENIUSAI_EMBEDDING_ID:-Qwen/Qwen3-Embedding-0.6B}"
@@ -39,12 +39,12 @@ while [[ $# -gt 0 ]]; do
       PRELOAD_MODELS_FLAG=""
       shift
       ;;
-    --postgres-url)
+    --postgre-url)
       if [[ $# -lt 2 ]]; then
-        echo "error: --postgres-url requires a value" >&2
+        echo "error: --postgre-url requires a value" >&2
         exit 1
       fi
-      POSTGRES_URL="$2"
+      POSTGRE_URL="$2"
       shift 2
       ;;
     --database-name)
@@ -119,7 +119,7 @@ fi
 
 cmd=(
   uv run python src/geniusai_server.py
-  --postgres-url "$POSTGRES_URL"
+  --postgre-url "$POSTGRE_URL"
   --database-name "$DATABASE_NAME"
   --model-cache-path "$MODEL_CACHE_PATH"
 )

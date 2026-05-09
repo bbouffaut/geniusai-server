@@ -32,7 +32,7 @@ parser.add_argument(
 )
 parser.add_argument('--data-dir', type=str, help='Runtime data directory for logs and pid files')
 parser.add_argument(
-    '--postgres-url',
+    '--postgre-url',
     type=str,
     default=os.environ.get("GENIUSAI_POSTGRES_URL", "postgresql://localhost:5432/postgres"),
     help='PostgreSQL connection URL used to create/connect databases',
@@ -58,8 +58,8 @@ args = parser.parse_args()
 # --- Constants ---
 DATA_DIR = os.path.abspath(os.path.expanduser(args.data_dir or args.db_path or os.getcwd()))
 DB_PATH = DATA_DIR
-POSTGRES_URL = args.postgres_url
-POSTGRES_DATABASE_NAME = args.database_name or build_database_name(args.llm_id, args.embedding_id)
+POSTGRE_URL = args.postgre_url
+POSTGRE_DATABASE_NAME = args.database_name or build_database_name(args.llm_id, args.embedding_id)
 FETCH_MODELS = args.fetch_models
 MODEL_CACHE_PATH = os.path.abspath(os.path.expanduser(args.model_cache_path)) if args.model_cache_path else None
 PRELOAD_MODELS = args.preload_models

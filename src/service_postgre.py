@@ -4,19 +4,19 @@ from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
 from psycopg.types.json import Jsonb
 
-from config import POSTGRES_DATABASE_NAME, POSTGRES_URL, TEXT_EMBEDDING_DIMENSION, logger
+from config import POSTGRE_DATABASE_NAME, POSTGRE_URL, TEXT_EMBEDDING_DIMENSION, logger
 
 
 _initialized = False
 
 
 def _target_conninfo():
-    return make_conninfo(POSTGRES_URL, dbname=POSTGRES_DATABASE_NAME)
+    return make_conninfo(POSTGRE_URL, dbname=POSTGRE_DATABASE_NAME)
 
 
 def _maintenance_conninfo():
-    conninfo = conninfo_to_dict(POSTGRES_URL)
-    return make_conninfo(POSTGRES_URL, dbname=conninfo.get("dbname") or "postgres")
+    conninfo = conninfo_to_dict(POSTGRE_URL)
+    return make_conninfo(POSTGRE_URL, dbname=conninfo.get("dbname") or "postgres")
 
 
 def _connect_to_target():
@@ -28,15 +28,15 @@ def _ensure_initialized():
     if _initialized:
         return
 
-    logger.info(f"Initializing PostgreSQL database '{POSTGRES_DATABASE_NAME}' with pgvector...")
+    logger.info(f"Initializing PostgreSQL database '{POSTGRE_DATABASE_NAME}' with pgvector...")
     with psycopg.connect(_maintenance_conninfo(), autocommit=True) as conn:
         exists = conn.execute(
             "SELECT 1 FROM pg_database WHERE datname = %s",
-            (POSTGRES_DATABASE_NAME,),
+            (POSTGRE_DATABASE_NAME,),
         ).fetchone()
         if not exists:
-            conn.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(POSTGRES_DATABASE_NAME)))
-            logger.info(f"Created PostgreSQL database '{POSTGRES_DATABASE_NAME}'.")
+            conn.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(POSTGRE_DATABASE_NAME)))
+            logger.info(f"Created PostgreSQL database '{POSTGRE_DATABASE_NAME}'.")
 
     with _connect_to_target() as conn:
         conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
@@ -352,7 +352,7 @@ def get_db_stats():
         ).fetchone()
 
     return {
-        "database": POSTGRES_DATABASE_NAME,
+        "database": POSTGRE_DATABASE_NAME,
         "num_images": count,
         "db_size_mb": round(db_size, 2),
         "num_with_phash": stats[0],
