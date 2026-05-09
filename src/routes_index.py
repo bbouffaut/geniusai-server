@@ -6,7 +6,7 @@ import os
 #import service_chroma as postgre_service
 import service_postgre as postgre_service
 from config import DEFAULT_METADATA_LANGUAGE, logger
-from service_index import process_image_task
+from service_index import keywords_with_generation_model, process_image_task
 import base64
 import json
 
@@ -318,7 +318,17 @@ def get_photo_data():
                     # The plugin expects either:
                     # - JSON array: ["kw1", "kw2"]
                     # - JSON object: {"Category": ["kw1"], ...}
-                    metadata_fields[key] = json.loads(value)
+                    metadata_fields[key] = keywords_with_generation_model(
+                        json.loads(value),
+                        metadata_dict.get('provider'),
+                        metadata_dict.get('model'),
+                    )
+                elif key == 'keywords':
+                    metadata_fields[key] = keywords_with_generation_model(
+                        value,
+                        metadata_dict.get('provider'),
+                        metadata_dict.get('model'),
+                    )
                 elif key == 'tokens_used' and isinstance(value, str) and value:
                     try:
                         metadata_fields[key] = json.loads(value) if value else []
@@ -327,6 +337,13 @@ def get_photo_data():
                         metadata_fields[key] = []
                 else:
                     metadata_fields[key] = value
+
+        if "keywords" not in metadata_fields and (metadata_dict.get('provider') or metadata_dict.get('model')):
+            metadata_fields["keywords"] = keywords_with_generation_model(
+                {},
+                metadata_dict.get('provider'),
+                metadata_dict.get('model'),
+            )
         
         logger.info(f"Retrieved data for photo {uuid}: {len(metadata_fields)} metadata fields, {len(quality_fields)} quality fields")
         

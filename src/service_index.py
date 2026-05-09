@@ -6,6 +6,10 @@ import server_lifecycle as server_lifecycle
 import json
 from datetime import datetime as time
 
+
+MODEL_KEYWORD_CATEGORY = "AI Model"
+UNCATEGORIZED_KEYWORD_CATEGORY = "Keywords"
+
 def _flatten_keywords(keywords):
     """
     Flatten keywords from various formats to a comma-separated string.
@@ -53,6 +57,76 @@ def _flatten_keywords(keywords):
         return ', '.join(all_keywords)
     
     return ""
+
+
+def _generation_model_label(provider, model_name):
+    if provider and model_name:
+        return f"{provider}/{model_name}"
+    if model_name:
+        return str(model_name)
+    if provider:
+        return str(provider)
+    return None
+
+
+def _append_unique_keyword(values, keyword):
+    if isinstance(values, list):
+        updated = [value for value in values if value]
+    elif values:
+        updated = [values]
+    else:
+        updated = []
+
+    keyword_text = str(keyword)
+    if keyword_text not in [str(value) for value in updated]:
+        updated.append(keyword_text)
+
+    return updated
+
+
+def keywords_with_generation_model(keywords, provider, model_name):
+    model_label = _generation_model_label(provider, model_name)
+    if not model_label:
+        return keywords
+
+    if isinstance(keywords, str):
+        stripped = keywords.strip()
+        if stripped:
+            try:
+                keywords = json.loads(stripped)
+            except json.JSONDecodeError:
+                keywords = [stripped]
+        else:
+            keywords = {}
+
+    if isinstance(keywords, dict):
+        updated_keywords = keywords.copy()
+        updated_keywords[MODEL_KEYWORD_CATEGORY] = _append_unique_keyword(
+            updated_keywords.get(MODEL_KEYWORD_CATEGORY),
+            model_label,
+        )
+        return updated_keywords
+
+    if isinstance(keywords, list):
+        return {
+            UNCATEGORIZED_KEYWORD_CATEGORY: keywords,
+            MODEL_KEYWORD_CATEGORY: [model_label],
+        }
+
+    return {MODEL_KEYWORD_CATEGORY: [model_label]}
+
+
+def _store_generation_model_keyword(metadata):
+    keywords_with_model = keywords_with_generation_model(
+        metadata.get("keywords"),
+        metadata.get("provider"),
+        metadata.get("model"),
+    )
+    if not keywords_with_model:
+        return
+
+    metadata["keywords"] = json.dumps(keywords_with_model)
+    metadata["flattened_keywords"] = _flatten_keywords(keywords_with_model)
 
 
 _NON_SEARCHABLE_METADATA_KEYS = {
@@ -279,7 +353,8 @@ def process_image_task(
                         main_metadata["provider"] = provider
                     if not main_metadata.get("model"):
                         main_metadata["model"] = model_name
-                
+
+                _store_generation_model_keyword(main_metadata)
                 main_metadata['run_date'] = time.now().strftime("%Y-%m-%d %H:%M:%S")
 
                 if replace_ss:
