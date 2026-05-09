@@ -88,6 +88,10 @@ def _ensure_initialized():
     _initialized = True
 
 
+def initialize():
+    _ensure_initialized()
+
+
 def _embedding_literal(embedding):
     if embedding is None:
         return None

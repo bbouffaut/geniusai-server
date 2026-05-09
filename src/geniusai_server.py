@@ -27,6 +27,7 @@ from routes_index import index_bp
 from routes_search import search_bp
 from routes_server import server_bp
 from routes_import import import_bp
+import service_postgre as postgre_service
 
 app = Flask(__name__)
 logger.info("Flask app created")
@@ -183,6 +184,14 @@ if __name__ == "__main__":
         )
     logger.info("=" * 60)
 
+    logger.info("Initializing PostgreSQL before accepting requests...")
+    try:
+        postgre_service.initialize()
+    except Exception as e:
+        logger.critical(f"PostgreSQL startup initialization failed: {e}", exc_info=True)
+        raise
+    logger.info("PostgreSQL initialized")
+
     should_preload_models = PRELOAD_MODELS and (
         not args.debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true"
     )
@@ -197,7 +206,7 @@ if __name__ == "__main__":
     
     # Mark server as ready for startup scripts
     server_lifecycle.write_ok_file()
-    logger.info("✓ Server initialized and ready to accept connections")
+    logger.info("Server initialized and ready to accept connections")
     
     # Write PID for lifecycle management
     server_lifecycle.write_pid_file()
@@ -209,9 +218,9 @@ if __name__ == "__main__":
         else:
             logger.info("Starting production server on http://127.0.0.1:19819")
             if PRELOAD_MODELS:
-                logger.info("Embedding model preloaded; PostgreSQL will initialize on first request")
+                logger.info("Embedding model preloaded; PostgreSQL initialized")
             else:
-                logger.info("Heavy modules (PostgreSQL, AI models) will load on first request")
+                logger.info("PostgreSQL initialized; AI models will load on first request")
             serve(app, host="127.0.0.1", port=19819, threads=4)
     finally:
         logger.info("Shutting down server...")
