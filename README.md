@@ -8,24 +8,26 @@ The python backend for LrGeniusAI and possibly others in the future...
 
 ```bash
 uv sync
-uv run python src/geniusai_server.py --postgres-url postgresql://localhost:5432/postgres --llm-id ollama --embedding-id Qwen/Qwen3-Embedding-0.6B --preload-models
+cp .env.postgre.example .env.postgre.local
+./run.sh --dotenv .env.postgre.local --preload-models
 ```
 
 macOS/Linux:
 
 ```bash
+cp .env.postgre.example .env.postgre.local
 ./run.sh --fetch-models #populate cache with models
 ./run.sh --data-dir <data_dir> # specify runtime log/pid directory
-./run.sh --postgres-url postgresql://localhost:5432/postgres # PostgreSQL maintenance URL
+./run.sh --dotenv .env.postgre.local # load PostgreSQL and model cache settings from a git-ignored dotenv file
 ./run.sh --database-name <database_name> # use an explicit PostgreSQL database name
-./run.sh --model-cache-path <model_cache_path> # specify embedding model cache path
+./run.sh --model-cache-path <model_cache_path> # override embedding model cache path
 ./run.sh --debug #Debug mode
 ./run.sh --debug-in-file <log_path> # write full debug logs, incoming HTTP requests, and LLM provider request payloads to this file
 ./run.sh --lazy-load-models # skip command-line model preload
 ./run.sh --preload-models #Load models at startup instead of waiting 1st request
 ./run.sh #load models from cache, assuming this is present
-#./run.sh --postgres-url "postgresql://localhost:5432/postgres" --llm-id "ollama/llava" --embedding-id "Qwen/Qwen3-Embedding-0.6B"
-#./run.sh --database-name "llava-qwen3" --model-cache-path "/Volumes/Extreme SSD/Lightroom Plugins/lrgeniusAI-data/embeddings-models-cache/"
+#./run.sh --dotenv ".env.postgre.local"
+#./run.sh --database-name "llava-qwen3"
 ```
 
 The embedding model cache path controls where the Hugging Face metadata text embedding model is stored and loaded from. It is passed to Hugging Face as `cache_dir`, so the model will be stored under that directory using Hugging Face's cache layout.
@@ -33,10 +35,12 @@ Command-line wrapper launches preload the embedding model before the server acce
 
 ### Database
 
-The server stores metadata and vectors in PostgreSQL with the `pgvector` extension. On first use it connects through `--postgres-url`, creates the selected database when it does not exist, enables `pgvector`, and creates the `photo_metadata` table plus vector indexes.
+The server stores metadata and vectors in PostgreSQL with the `pgvector` extension. On first use it connects through the configured PostgreSQL URL, creates the selected database when it does not exist, enables `pgvector`, and creates the `photo_metadata` table plus vector indexes.
 
 Database selection is configuration-driven:
 
+- PostgreSQL connection settings and the model cache path belong in `.env.postgre.local`, which is ignored by git. The Makefile uses this file through `LOCAL_DOTENV ?= .env.postgre.local`.
+- The dotenv file supports `GENIUSAI_POSTGRES_URL`, `GENIUSAI_POSTGRES_USER`, `GENIUSAI_POSTGRES_PASSWORD`, and `MODEL_CACHE_PATH`.
 - `--database-name <name>` uses an explicit database.
 - Switching database is done by passing a different `--database-name`.
 

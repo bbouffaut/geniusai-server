@@ -21,6 +21,10 @@ chroma.sqlite3
 lrgenius-server.log
 lrgenius-server.OK
 lrgenius-server.pid
+.env
+.env.*
+!.env.example
+!.env.*.example
 
 #Ignore cursor AI rules
 .cursor/rules/codacy.mdc

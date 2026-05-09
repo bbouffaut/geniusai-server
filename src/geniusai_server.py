@@ -10,7 +10,6 @@ from config import (
     DEBUG_IN_FILE,
     DEBUG_IN_FILE_PATH,
     POSTGRE_DATABASE_NAME,
-    POSTGRE_URL,
     PRELOAD_MODELS,
     args,
     logger,
@@ -175,7 +174,7 @@ if __name__ == "__main__":
     logger.info("=" * 60)
     logger.info("LrGenius Server starting...")
     logger.info(f"Python: {sys.version.split()[0]}")
-    logger.info(f"PostgreSQL: ${POSTGRE_URL}")
+    logger.info(f"PostgreSQL: {postgre_service.describe_connection_target()}")
     logger.info(f"Database: {POSTGRE_DATABASE_NAME}")
     if DEBUG_IN_FILE_PATH:
         logger.warning(
@@ -187,9 +186,11 @@ if __name__ == "__main__":
     logger.info("Initializing PostgreSQL before accepting requests...")
     try:
         postgre_service.initialize()
-    except Exception as e:
-        logger.critical(f"PostgreSQL startup initialization failed: {e}", exc_info=True)
-        raise
+    except postgre_service.PostgreStartupError as e:
+        logger.critical("%s", e)
+        if DEBUG_IN_FILE:
+            raw_debug_logger.debug("PostgreSQL startup traceback", exc_info=True)
+        sys.exit(1)
     logger.info("PostgreSQL initialized")
 
     should_preload_models = PRELOAD_MODELS and (

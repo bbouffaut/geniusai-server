@@ -4,19 +4,86 @@ from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
 from psycopg.types.json import Jsonb
 
-from config import POSTGRE_DATABASE_NAME, POSTGRE_URL, TEXT_EMBEDDING_DIMENSION, logger
+from config import (
+    POSTGRE_DATABASE_NAME,
+    POSTGRE_PASSWORD,
+    POSTGRE_URL,
+    POSTGRE_USER,
+    TEXT_EMBEDDING_DIMENSION,
+    logger,
+)
 
 
 _initialized = False
 
 
+class PostgreStartupError(RuntimeError):
+    pass
+
+
+def _make_postgre_conninfo(dbname=None):
+    overrides = {}
+    if dbname:
+        overrides["dbname"] = dbname
+    if POSTGRE_USER:
+        overrides["user"] = POSTGRE_USER
+    if POSTGRE_PASSWORD:
+        overrides["password"] = POSTGRE_PASSWORD
+
+    return make_conninfo(POSTGRE_URL, **overrides)
+
+
+def _redacted_postgre_url():
+    try:
+        conninfo = conninfo_to_dict(_make_postgre_conninfo())
+    except Exception:
+        return "<invalid PostgreSQL URL>"
+
+    parts = []
+    for key in ("host", "hostaddr", "port", "dbname", "user"):
+        value = conninfo.get(key)
+        if value:
+            parts.append(f"{key}={value}")
+
+    if conninfo.get("password"):
+        parts.append("password=<redacted>")
+
+    return " ".join(parts) if parts else "<default local PostgreSQL connection>"
+
+
+def _redact_sensitive_text(value):
+    text = str(value)
+    if POSTGRE_URL:
+        text = text.replace(POSTGRE_URL, _redacted_postgre_url())
+    if POSTGRE_PASSWORD:
+        text = text.replace(POSTGRE_PASSWORD, "<redacted>")
+    return text
+
+
+def _format_startup_error(error):
+    cause = str(error).strip() or error.__class__.__name__
+    cause = _redact_sensitive_text(cause)
+    return (
+        "PostgreSQL initialization failed, so LrGenius Server cannot start.\n"
+        f"Connection: {_redacted_postgre_url()}\n"
+        f"Database: {POSTGRE_DATABASE_NAME}\n"
+        f"Cause: {cause}\n"
+        "Please check that PostgreSQL is running, the host/port are reachable, "
+        "the credentials are valid, and the pgvector extension is installed."
+    )
+
+
+def describe_connection_target():
+    return _redacted_postgre_url()
+
+
 def _target_conninfo():
-    return make_conninfo(POSTGRE_URL, dbname=POSTGRE_DATABASE_NAME)
+    return _make_postgre_conninfo(dbname=POSTGRE_DATABASE_NAME)
 
 
 def _maintenance_conninfo():
-    conninfo = conninfo_to_dict(POSTGRE_URL)
-    return make_conninfo(POSTGRE_URL, dbname=conninfo.get("dbname") or "postgres")
+    conninfo = conninfo_to_dict(_make_postgre_conninfo())
+    return _make_postgre_conninfo(dbname=conninfo.get("dbname") or "postgres")
 
 
 def _connect_to_target():
@@ -89,7 +156,10 @@ def _ensure_initialized():
 
 
 def initialize():
-    _ensure_initialized()
+    try:
+        _ensure_initialized()
+    except (psycopg.Error, ValueError) as e:
+        raise PostgreStartupError(_format_startup_error(e)) from e
 
 
 def _embedding_literal(embedding):
