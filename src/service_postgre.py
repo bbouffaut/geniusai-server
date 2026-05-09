@@ -112,7 +112,7 @@ def _ensure_initialized():
                 """
                 CREATE TABLE IF NOT EXISTS photo_metadata (
                     uuid TEXT PRIMARY KEY,
-                    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    metadata JSONB NOT NULL DEFAULT '{{}}'::jsonb,
                     document TEXT,
                     embedding vector({dimension}),
                     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
