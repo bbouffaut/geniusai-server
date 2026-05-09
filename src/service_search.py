@@ -280,12 +280,12 @@ def search_images(term, quality_sort, uuids_to_search, min_pertinence_score=DEFA
     return final_results
 
 
-def group_similar_images(uuids, phash_threshold, clip_threshold, time_delta):
+def group_similar_images(uuids, phash_threshold, time_delta):
     """Groups a list of images by similarity and sorts them by quality."""
-    logger.info(f"Grouping {len(uuids)} UUIDs with phash_threshold='{phash_threshold}', clip_threshold='{clip_threshold}', and time_delta='{time_delta}s'.")
+    logger.info(f"Grouping {len(uuids)} UUIDs with phash_threshold='{phash_threshold}' and time_delta='{time_delta}s'.")
 
     try:
-        grouped_results = postgre_service.group_and_sort_images(uuids, phash_threshold, clip_threshold, time_delta)
+        grouped_results = postgre_service.group_and_sort_images(uuids, phash_threshold, time_delta)
         return grouped_results
     except Exception as e:
         logger.error(f"Error during similarity grouping: {str(e)}")

@@ -116,7 +116,6 @@ else:  # Linux and other Unix-like platforms
     TORCH_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 # Legacy names kept for compatibility with older scripts/imports.
-CLIP_MODEL_NAME = TEXT_EMBEDDING_MODEL_ID
 IMAGE_MODEL_ID = TEXT_EMBEDDING_MODEL_ID
 
 LLM_BATCH_SIZE = 3  # Optimized batch size for better performance

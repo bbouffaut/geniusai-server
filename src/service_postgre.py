@@ -405,7 +405,7 @@ def get_all_image_ids(has_embedding=None):
     return [row[0] for row in rows]
 
 
-def group_and_sort_images(uuids, phash_threshold, clip_threshold, time_delta):
+def group_and_sort_images(uuids, phash_threshold, time_delta):
     logger.warning("group_and_sort_images is not yet implemented.")
     return []
 

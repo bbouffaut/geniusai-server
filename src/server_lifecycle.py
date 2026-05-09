@@ -143,11 +143,6 @@ def start_download_embedding_model():
         _download_thread.start()
 
 
-def start_download_clip_model():
-    """Backward-compatible name for older clients/routes."""
-    start_download_embedding_model()
-
-
 def _set_last_used():
     global _last_used
     _last_used = datetime.datetime.utcnow()
