@@ -50,7 +50,6 @@ class LMStudioProvider(LLMProviderBase):
             
             chat = lms.Chat(system_prompt)
             chat.add_user_message(user_prompt, images=[image_handle])
-            response_config = {"temperature": request.temperature}
             payload = {
                 "model": request.model,
                 "messages": [
@@ -62,12 +61,11 @@ class LMStudioProvider(LLMProviderBase):
                     },
                 ],
                 "response_format": response_schema,
-                "config": response_config,
             }
 
             # Make request to LM Studio
             self._log_llm_payload("LM Studio metadata request", payload)
-            response = model.respond(chat, response_format=response_schema, config=response_config)
+            response = model.respond(chat, response_format=response_schema)
             
             # Extract message content
             content = response.parsed
@@ -134,7 +132,6 @@ class LMStudioProvider(LLMProviderBase):
 
             chat = lms.Chat(system_prompt)
             chat.add_user_message(user_prompt, images=[image_handle])
-            response_config = {"temperature": request.temperature}
             payload = {
                 "model": request.model,
                 "messages": [
@@ -146,12 +143,11 @@ class LMStudioProvider(LLMProviderBase):
                     },
                 ],
                 "response_format": quality_schema,
-                "config": response_config,
             }
 
             # Make request to LM Studio
             self._log_llm_payload("LM Studio quality scoring request", payload)
-            response = model.respond(chat, response_format=quality_schema, config=response_config)
+            response = model.respond(chat, response_format=quality_schema)
             
             # Extract message content
             content = response.parsed

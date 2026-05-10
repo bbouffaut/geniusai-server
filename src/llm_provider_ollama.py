@@ -91,7 +91,6 @@ class OllamaProvider(LLMProviderBase):
                 ],
                 "format": response_schema,
                 "options": {
-                    "temperature": request.temperature,
                     "top_p": 0.9,
                     "num_keep": -1,
                 },
@@ -202,7 +201,7 @@ class OllamaProvider(LLMProviderBase):
                     {"role": "user", "content": user_prompt, "images": [image_b64]},
                 ],
                 "format": response_schema,
-                "options": {"temperature": request.temperature, "top_p": 0.8},
+                "options": {"top_p": 0.8},
                 "stream": False,
             }
 

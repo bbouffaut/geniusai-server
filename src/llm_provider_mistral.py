@@ -71,7 +71,6 @@ class MistralProvider(LLMProviderBase):
                     },
                 ],
                 "response_format": response_format,
-                "temperature": request.temperature,
             }
             self._add_max_tokens(payload, request.max_tokens)
 
@@ -186,7 +185,6 @@ class MistralProvider(LLMProviderBase):
                 "response_format": self._json_schema_response_format(
                     "quality_scores", quality_schema
                 ),
-                "temperature": request.temperature,
             }
             self._add_max_tokens(payload, request.max_tokens)
 

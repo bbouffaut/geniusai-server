@@ -27,7 +27,6 @@ def _extract_options(data):
     options['model'] = data.get('model')
     options['api_key'] = data.get('api_key')
     options['language'] = data.get('language', DEFAULT_METADATA_LANGUAGE)
-    options['temperature'] = float(data.get('temperature', 0.2))
     options['max_tokens'] = data.get('max_tokens')
     options['generate_keywords'] = str(data.get('generate_keywords', 'true')).lower() == 'true'
     options['generate_caption'] = str(data.get('generate_caption', 'true')).lower() == 'true'

@@ -119,7 +119,6 @@ else:  # Linux and other Unix-like platforms
 IMAGE_MODEL_ID = TEXT_EMBEDDING_MODEL_ID
 
 LLM_BATCH_SIZE = 3  # Optimized batch size for better performance
-LLM_TEMPERATURE = 0.2  # Reduced for faster, more deterministic responses
 
 # --- Search Settings ---
 # Cosine similarity threshold for normalized query/metadata text embeddings.
