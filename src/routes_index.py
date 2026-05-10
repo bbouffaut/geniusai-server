@@ -43,11 +43,20 @@ def _extract_options(data):
     keyword_categories_raw = data.get('keyword_categories', '[]')
     if isinstance(keyword_categories_raw, str):
         try:
-            options['keyword_categories'] = json.loads(keyword_categories_raw)
+            keyword_categories = json.loads(keyword_categories_raw)
         except json.JSONDecodeError:
-            options['keyword_categories'] = []
+            keyword_categories = []
     else:
-        options['keyword_categories'] = keyword_categories_raw
+        keyword_categories = keyword_categories_raw
+
+    if isinstance(keyword_categories, dict):
+        keyword_categories = {
+            name: children
+            for name, children in keyword_categories.items()
+            if isinstance(children, dict) and children
+        }
+
+    options['keyword_categories'] = keyword_categories
 
     options['replace_ss'] = str(data.get('replace_ss', 'false')).lower() == 'true'
     # Support both snake_case and camelCase keys from clients
