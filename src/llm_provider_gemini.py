@@ -108,7 +108,6 @@ class GeminiProvider(LLMProviderBase):
             config = types.GenerateContentConfig(
                 response_mime_type=generation_config.get("response_mime_type"),
                 response_schema=generation_config.get("response_schema"),
-                temperature=generation_config.get("temperature"),
                 thinking_config=thinking_config if thinking_config else None,
             )
 
@@ -319,7 +318,6 @@ class GeminiProvider(LLMProviderBase):
             generation_config = {
                 "response_mime_type": "application/json",
                 "response_schema": quality_schema,
-                "temperature": request.temperature,
             }
             
             model_name = request.model
@@ -330,12 +328,11 @@ class GeminiProvider(LLMProviderBase):
             config = types.GenerateContentConfig(
                 response_mime_type=generation_config.get("response_mime_type"),
                 response_schema=generation_config.get("response_schema"),
-                temperature=generation_config.get("temperature"),
             )
 
             timeout = self.timeout
             logger.info(f"Sending quality scoring request to Gemini: {model_name} (timeout: {timeout}s)")
-            logger.info(f"Request parameters - temperature: {generation_config['temperature']}, language: {request.language}")
+            logger.info(f"Request parameters - language: {request.language}")
 
             try:
                 contents = [user_prompt, types.Part.from_bytes(data=request.image_data, mime_type='image/jpeg')]
@@ -469,7 +466,6 @@ class GeminiProvider(LLMProviderBase):
         return {
             "response_mime_type": "application/json",
             "response_schema": schema,
-            "temperature": request.temperature,
         }
     
     def _prepare_gemini_response_schema(self, request: MetadataGenerationRequest) -> Dict[str, Any]:

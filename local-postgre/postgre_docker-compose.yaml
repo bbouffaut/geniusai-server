@@ -1,0 +1,12 @@
+services:
+  postgres-db:
+    image: pgvector/pgvector:pg16
+    container_name: postgres-db
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: superuserpassword
+
+    ports:
+      - "32345:5432"

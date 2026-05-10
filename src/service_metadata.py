@@ -277,7 +277,6 @@ class AnalysisService:
             generate_title=options['generate_title'],
             generate_alt_text=options['generate_alt_text'],
             language=options['language'],
-            temperature=options['temperature'],
             max_tokens=options.get('max_tokens'),
             user_prompt=options.get('user_prompt'),
             submit_gps=options['submit_gps'],
@@ -328,7 +327,6 @@ class AnalysisService:
             model=options['model'],
             api_key=options.get('api_key'),
             language=options['language'],
-            temperature=options['temperature'],
             max_tokens=options.get('max_tokens'),
             system_prompt=options.get('system_prompt'),
             user_prompt=options.get('user_prompt')

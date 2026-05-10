@@ -199,7 +199,7 @@ def get_all_image_ids(has_embedding=None):
     return filtered_ids
 
 
-def group_and_sort_images(uuids, phash_threshold, clip_threshold, time_delta):
+def group_and_sort_images(uuids, phash_threshold, time_delta):
     """
     [NOT IMPLEMENTED] Groups a list of images by similarity and sorts them by quality.
     """

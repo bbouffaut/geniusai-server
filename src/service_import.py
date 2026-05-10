@@ -1,5 +1,6 @@
 from config import logger
-import service_chroma as chroma_service
+#import service_chroma as chroma_service
+import service_postgre as postgre_service
 import json
 from datetime import datetime as time
 from service_index import _flatten_keywords
@@ -28,7 +29,7 @@ def import_metadata_task(metadata_items: list[dict]) -> tuple[int, int]:
             continue
 
         try:
-            existing_record = chroma_service.get_image(uuid)
+            existing_record = postgre_service.get_image(uuid)
 
             metadata_to_update = {}
             if 'keywords' in item and item['keywords'] and item['keywords'] != []:
@@ -52,14 +53,14 @@ def import_metadata_task(metadata_items: list[dict]) -> tuple[int, int]:
             # independently of embeddings.
             if not existing_record or not existing_record['ids']:
                 metadata_to_update['run_date'] = time.now().strftime("%Y-%m-%d %H:%M:%S")
-                chroma_service.add_image(uuid, None, metadata_to_update)
+                postgre_service.add_image(uuid, None, metadata_to_update)
                 logger.info(f"Created metadata-only entry for UUID {uuid}.")
                 success_count += 1
                 continue
 
             metadata_to_update['run_date'] = time.now().strftime("%Y-%m-%d %H:%M:%S")
 
-            chroma_service.update_image(uuid, metadata_to_update)
+            postgre_service.update_image(uuid, metadata_to_update)
             logger.info(f"Successfully imported metadata for UUID {uuid}.")
             success_count += 1
 

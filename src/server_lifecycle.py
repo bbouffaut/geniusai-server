@@ -2,7 +2,7 @@ import os
 import time
 import signal
 from config import (
-    DB_PATH,
+    DATA_DIR,
     FETCH_MODELS,
     MODEL_CACHE_PATH,
     TEXT_EMBEDDING_MAX_LENGTH,
@@ -141,11 +141,6 @@ def start_download_embedding_model():
         _download_thread = threading.Thread(target=_download_embedding_model_thread)
         _download_thread.daemon = True
         _download_thread.start()
-
-
-def start_download_clip_model():
-    """Backward-compatible name for older clients/routes."""
-    start_download_embedding_model()
 
 
 def _set_last_used():
@@ -362,7 +357,7 @@ def get_tokenizer():
     return tokenizer
 
 def get_db_dir():
-    return os.path.dirname(DB_PATH)
+    return DATA_DIR
 
 def write_pid_file():
     pid_file = os.path.join(get_db_dir(), "lrgenius-server.pid")

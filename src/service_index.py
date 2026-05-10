@@ -1,9 +1,14 @@
 from config import TEXT_EMBEDDING_MODEL_ID, logger
-import service_chroma as chroma_service
+#import service_chroma as chroma_service
+import service_postgre as postgre_service
 from service_metadata import get_analysis_service
 import server_lifecycle as server_lifecycle
 import json
 from datetime import datetime as time
+
+
+MODEL_KEYWORD_CATEGORY = "AI Model"
+UNCATEGORIZED_KEYWORD_CATEGORY = "Keywords"
 
 def _flatten_keywords(keywords):
     """
@@ -52,6 +57,76 @@ def _flatten_keywords(keywords):
         return ', '.join(all_keywords)
     
     return ""
+
+
+def _generation_model_label(provider, model_name):
+    if provider and model_name:
+        return f"{provider}/{model_name}"
+    if model_name:
+        return str(model_name)
+    if provider:
+        return str(provider)
+    return None
+
+
+def _append_unique_keyword(values, keyword):
+    if isinstance(values, list):
+        updated = [value for value in values if value]
+    elif values:
+        updated = [values]
+    else:
+        updated = []
+
+    keyword_text = str(keyword)
+    if keyword_text not in [str(value) for value in updated]:
+        updated.append(keyword_text)
+
+    return updated
+
+
+def keywords_with_generation_model(keywords, provider, model_name):
+    model_label = _generation_model_label(provider, model_name)
+    if not model_label:
+        return keywords
+
+    if isinstance(keywords, str):
+        stripped = keywords.strip()
+        if stripped:
+            try:
+                keywords = json.loads(stripped)
+            except json.JSONDecodeError:
+                keywords = [stripped]
+        else:
+            keywords = {}
+
+    if isinstance(keywords, dict):
+        updated_keywords = keywords.copy()
+        updated_keywords[MODEL_KEYWORD_CATEGORY] = _append_unique_keyword(
+            updated_keywords.get(MODEL_KEYWORD_CATEGORY),
+            model_label,
+        )
+        return updated_keywords
+
+    if isinstance(keywords, list):
+        return {
+            UNCATEGORIZED_KEYWORD_CATEGORY: keywords,
+            MODEL_KEYWORD_CATEGORY: [model_label],
+        }
+
+    return {MODEL_KEYWORD_CATEGORY: [model_label]}
+
+
+def _store_generation_model_keyword(metadata):
+    keywords_with_model = keywords_with_generation_model(
+        metadata.get("keywords"),
+        metadata.get("provider"),
+        metadata.get("model"),
+    )
+    if not keywords_with_model:
+        return
+
+    metadata["keywords"] = json.dumps(keywords_with_model)
+    metadata["flattened_keywords"] = _flatten_keywords(keywords_with_model)
 
 
 _NON_SEARCHABLE_METADATA_KEYS = {
@@ -148,7 +223,7 @@ def process_image_task(
         if not regenerate_metadata:
             logger.info("Checking existing records to determine what needs generation...")
             for _, uuid, _ in image_triplets:
-                existing_record = chroma_service.get_image(uuid)
+                existing_record = postgre_service.get_image(uuid)
                 if existing_record and existing_record['ids']:
                     existing_records[uuid] = existing_record['metadatas'][0] if existing_record['metadatas'] else {}
         
@@ -278,7 +353,8 @@ def process_image_task(
                         main_metadata["provider"] = provider
                     if not main_metadata.get("model"):
                         main_metadata["model"] = model_name
-                
+
+                _store_generation_model_keyword(main_metadata)
                 main_metadata['run_date'] = time.now().strftime("%Y-%m-%d %H:%M:%S")
 
                 if replace_ss:
@@ -319,20 +395,20 @@ def process_image_task(
                 
                 if existing and not regenerate_metadata:
                     logger.info(f"UUID {uuid} already exists. Updating (embedding: {update_embedding is not None}).")
-                    chroma_service.update_image(uuid, main_metadata, embedding=update_embedding, document=document)
+                    postgre_service.update_image(uuid, main_metadata, embedding=update_embedding, document=document)
                 elif regenerate_metadata:
                     logger.info(f"UUID {uuid} set to regenerate. Updating (embedding: {update_embedding is not None}).")
-                    if chroma_service.get_image(uuid) is not None:
-                        chroma_service.update_image(uuid, main_metadata, embedding=update_embedding, document=document)
+                    if postgre_service.get_image(uuid) is not None:
+                        postgre_service.update_image(uuid, main_metadata, embedding=update_embedding, document=document)
                     else:
-                        chroma_service.add_image(uuid, embedding, main_metadata, document=document)
+                        postgre_service.add_image(uuid, embedding, main_metadata, document=document)
                 else:
                     # New record
                     if embedding is not None:
                         logger.info(f"UUID {uuid} is new. Indexing with metadata embeddings.")
                     else:
                         logger.info(f"UUID {uuid} is new. Indexing metadata-only entry (no embedding).")
-                    chroma_service.add_image(uuid, embedding, main_metadata, document=document)
+                    postgre_service.add_image(uuid, embedding, main_metadata, document=document)
                 
                 success_count += 1
 

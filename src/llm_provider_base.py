@@ -55,7 +55,6 @@ class MetadataGenerationRequest:
     language: str
     
     # LLM parameters
-    temperature: float
     max_tokens: Optional[int]
     
     # System and user prompts (can override defaults)
@@ -115,7 +114,6 @@ class QualityScoreRequest:
     language: str
     
     # LLM parameters
-    temperature: float
     max_tokens: Optional[int]
     
     # System and user prompts (can override defaults)

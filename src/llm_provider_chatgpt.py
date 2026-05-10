@@ -84,9 +84,6 @@ class ChatGPTProvider(LLMProviderBase):
             # Prepare response format
             response_format = self._prepare_openai_response_format(request)
             
-            # Handle GPT-5 models (they don't support temperature)
-            temperature = 1.0 if request.model.startswith("gpt-5") else request.temperature
-            
             # Prepare messages
             messages = [
                 {
@@ -114,7 +111,6 @@ class ChatGPTProvider(LLMProviderBase):
                 "model": request.model,
                 "messages": messages,
                 "response_format": response_format,
-                "temperature": temperature,
             }
             
             # GPT-5 models require reasoning_effort
@@ -242,9 +238,6 @@ class ChatGPTProvider(LLMProviderBase):
                 }
             }
             
-            # Handle GPT-5 models
-            temperature = 1.0 if request.model.startswith("gpt-5") else request.temperature
-            
             # Prepare messages
             messages = [
                 {"role": "system", "content": system_prompt},
@@ -264,7 +257,6 @@ class ChatGPTProvider(LLMProviderBase):
                 "model": request.model,
                 "messages": messages,
                 "response_format": response_format,
-                "temperature": temperature,
             }
             
             if request.model.startswith("gpt-5"):

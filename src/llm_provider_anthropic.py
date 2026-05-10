@@ -60,7 +60,6 @@ class AnthropicProvider(LLMProviderBase):
                 model=request.model,
                 system_prompt=self._prepare_system_prompt(request),
                 user_prompt=self._prepare_user_prompt(request),
-                temperature=request.temperature,
                 max_tokens=request.max_tokens,
                 tool_name="record_metadata",
                 tool_description="Record the requested photo metadata.",
@@ -163,7 +162,6 @@ class AnthropicProvider(LLMProviderBase):
                 model=request.model,
                 system_prompt=self._prepare_quality_system_prompt(request),
                 user_prompt=self._prepare_quality_user_prompt(request),
-                temperature=request.temperature,
                 max_tokens=request.max_tokens,
                 tool_name="record_quality_scores",
                 tool_description="Record the requested photo quality scores and critique.",
@@ -259,7 +257,6 @@ class AnthropicProvider(LLMProviderBase):
         model: str,
         system_prompt: str,
         user_prompt: str,
-        temperature: float,
         max_tokens: Optional[int],
         tool_name: str,
         tool_description: str,
@@ -294,7 +291,6 @@ class AnthropicProvider(LLMProviderBase):
                 }
             ],
             "tool_choice": {"type": "tool", "name": tool_name},
-            "temperature": temperature,
         }
 
         return payload

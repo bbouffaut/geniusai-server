@@ -3,9 +3,10 @@ import time
 from collections import deque
 import os
 
-import service_chroma as chroma_service
+#import service_chroma as postgre_service
+import service_postgre as postgre_service
 from config import DEFAULT_METADATA_LANGUAGE, logger
-from service_index import process_image_task
+from service_index import keywords_with_generation_model, process_image_task
 import base64
 import json
 
@@ -26,7 +27,6 @@ def _extract_options(data):
     options['model'] = data.get('model')
     options['api_key'] = data.get('api_key')
     options['language'] = data.get('language', DEFAULT_METADATA_LANGUAGE)
-    options['temperature'] = float(data.get('temperature', 0.2))
     options['max_tokens'] = data.get('max_tokens')
     options['generate_keywords'] = str(data.get('generate_keywords', 'true')).lower() == 'true'
     options['generate_caption'] = str(data.get('generate_caption', 'true')).lower() == 'true'
@@ -43,11 +43,20 @@ def _extract_options(data):
     keyword_categories_raw = data.get('keyword_categories', '[]')
     if isinstance(keyword_categories_raw, str):
         try:
-            options['keyword_categories'] = json.loads(keyword_categories_raw)
+            keyword_categories = json.loads(keyword_categories_raw)
         except json.JSONDecodeError:
-            options['keyword_categories'] = []
+            keyword_categories = []
     else:
-        options['keyword_categories'] = keyword_categories_raw
+        keyword_categories = keyword_categories_raw
+
+    if isinstance(keyword_categories, dict):
+        keyword_categories = {
+            name: children
+            for name, children in keyword_categories.items()
+            if isinstance(children, dict) and children
+        }
+
+    options['keyword_categories'] = keyword_categories
 
     options['replace_ss'] = str(data.get('replace_ss', 'false')).lower() == 'true'
     # Support both snake_case and camelCase keys from clients
@@ -247,8 +256,8 @@ def remove_image():
     uuid = request.json.get('uuid')
     
     try:
-        chroma_service.delete_image(uuid)
-        logger.info(f"Image ID {uuid} removed from ChromaDB.")
+        postgre_service.delete_image(uuid)
+        logger.info(f"Image ID {uuid} removed from PostgreSQL.")
         return jsonify({"status": "removed", "uuid": uuid})
     except Exception as e:
         logger.error(f"Error removing image {uuid}: {e}")
@@ -277,8 +286,8 @@ def get_photo_data():
     uuid = request.json.get('uuid')
     
     try:
-        # Get photo data from ChromaDB
-        photo_data = chroma_service.get_image(uuid)
+        # Get photo data from PostgreSQL.
+        photo_data = postgre_service.get_image(uuid)
         logger.debug(f"Retrieved photo data for UUID {uuid}: {photo_data}")
         
         if not photo_data or not photo_data['ids']:
@@ -317,7 +326,17 @@ def get_photo_data():
                     # The plugin expects either:
                     # - JSON array: ["kw1", "kw2"]
                     # - JSON object: {"Category": ["kw1"], ...}
-                    metadata_fields[key] = json.loads(value)
+                    metadata_fields[key] = keywords_with_generation_model(
+                        json.loads(value),
+                        metadata_dict.get('provider'),
+                        metadata_dict.get('model'),
+                    )
+                elif key == 'keywords':
+                    metadata_fields[key] = keywords_with_generation_model(
+                        value,
+                        metadata_dict.get('provider'),
+                        metadata_dict.get('model'),
+                    )
                 elif key == 'tokens_used' and isinstance(value, str) and value:
                     try:
                         metadata_fields[key] = json.loads(value) if value else []
@@ -326,6 +345,13 @@ def get_photo_data():
                         metadata_fields[key] = []
                 else:
                     metadata_fields[key] = value
+
+        if "keywords" not in metadata_fields and (metadata_dict.get('provider') or metadata_dict.get('model')):
+            metadata_fields["keywords"] = keywords_with_generation_model(
+                {},
+                metadata_dict.get('provider'),
+                metadata_dict.get('model'),
+            )
         
         logger.info(f"Retrieved data for photo {uuid}: {len(metadata_fields)} metadata fields, {len(quality_fields)} quality fields")
         
@@ -361,6 +387,6 @@ def get_ids():
         has_embedding = has_embedding_param.lower() == 'true'
         logger.info(f"Filtering IDs by has_embedding={has_embedding}")
     
-    ids_data = chroma_service.get_all_image_ids(has_embedding=has_embedding)
+    ids_data = postgre_service.get_all_image_ids(has_embedding=has_embedding)
     logger.info(f"Returning {len(ids_data)} image IDs")
     return jsonify(ids_data)

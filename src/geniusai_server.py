@@ -9,6 +9,7 @@ import datetime
 from config import (
     DEBUG_IN_FILE,
     DEBUG_IN_FILE_PATH,
+    POSTGRE_DATABASE_NAME,
     PRELOAD_MODELS,
     args,
     logger,
@@ -25,6 +26,7 @@ from routes_index import index_bp
 from routes_search import search_bp
 from routes_server import server_bp
 from routes_import import import_bp
+import service_postgre as postgre_service
 
 app = Flask(__name__)
 logger.info("Flask app created")
@@ -172,13 +174,24 @@ if __name__ == "__main__":
     logger.info("=" * 60)
     logger.info("LrGenius Server starting...")
     logger.info(f"Python: {sys.version.split()[0]}")
-    logger.info(f"Database: {args.db_path}")
+    logger.info(f"PostgreSQL: {postgre_service.describe_connection_target()}")
+    logger.info(f"Database: {POSTGRE_DATABASE_NAME}")
     if DEBUG_IN_FILE_PATH:
         logger.warning(
             "Raw debug logging enabled; unredacted LLM request payloads "
             f"will be written to {DEBUG_IN_FILE_PATH}"
         )
     logger.info("=" * 60)
+
+    logger.info("Initializing PostgreSQL before accepting requests...")
+    try:
+        postgre_service.initialize()
+    except postgre_service.PostgreStartupError as e:
+        logger.critical("%s", e)
+        if DEBUG_IN_FILE:
+            raw_debug_logger.debug("PostgreSQL startup traceback", exc_info=True)
+        sys.exit(1)
+    logger.info("PostgreSQL initialized")
 
     should_preload_models = PRELOAD_MODELS and (
         not args.debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true"
@@ -194,7 +207,7 @@ if __name__ == "__main__":
     
     # Mark server as ready for startup scripts
     server_lifecycle.write_ok_file()
-    logger.info("✓ Server initialized and ready to accept connections")
+    logger.info("Server initialized and ready to accept connections")
     
     # Write PID for lifecycle management
     server_lifecycle.write_pid_file()
@@ -206,9 +219,9 @@ if __name__ == "__main__":
         else:
             logger.info("Starting production server on http://127.0.0.1:19819")
             if PRELOAD_MODELS:
-                logger.info("Embedding model preloaded; ChromaDB will load on first request")
+                logger.info("Embedding model preloaded; PostgreSQL initialized")
             else:
-                logger.info("Heavy modules (ChromaDB, AI models) will load on first request")
+                logger.info("PostgreSQL initialized; AI models will load on first request")
             serve(app, host="127.0.0.1", port=19819, threads=4)
     finally:
         logger.info("Shutting down server...")
