@@ -40,7 +40,7 @@ The server stores metadata and vectors in PostgreSQL with the `pgvector` extensi
 Database selection is configuration-driven:
 
 - PostgreSQL connection settings and the model cache path belong in `.env.postgre.local`, which is ignored by git. The Makefile uses this file through `LOCAL_DOTENV ?= .env.postgre.local`.
-- The dotenv file supports `GENIUSAI_POSTGRES_URL`, `GENIUSAI_POSTGRES_USER`, `GENIUSAI_POSTGRES_PASSWORD`, and `MODEL_CACHE_PATH`.
+- The dotenv file supports `GENIUSAI_POSTGRES_URL`, `GENIUSAI_POSTGRES_USER`, `GENIUSAI_POSTGRES_PASSWORD`, `GENIUSAI_DATABASE_NAME`, and `MODEL_CACHE_PATH`.
 - `--database-name <name>` uses an explicit database.
 - Switching database is done by passing a different `--database-name`.
 
