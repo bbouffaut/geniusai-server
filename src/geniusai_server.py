@@ -11,6 +11,8 @@ from config import (
     DEBUG_IN_FILE_PATH,
     POSTGRE_DATABASE_NAME,
     PRELOAD_MODELS,
+    SERVER_HOST,
+    SERVER_PORT,
     args,
     logger,
     raw_debug_logger,
@@ -214,15 +216,17 @@ if __name__ == "__main__":
     
     try:
         if args.debug:
-            logger.info("Starting Flask development server in debug mode on http://127.0.0.1:19819")
-            app.run(debug=True, host="127.0.0.1", port=19819)
+            logger.info(
+                f"Starting Flask development server in debug mode on http://{SERVER_HOST}:{SERVER_PORT}"
+            )
+            app.run(debug=True, host=SERVER_HOST, port=SERVER_PORT)
         else:
-            logger.info("Starting production server on http://127.0.0.1:19819")
+            logger.info(f"Starting production server on http://{SERVER_HOST}:{SERVER_PORT}")
             if PRELOAD_MODELS:
                 logger.info("Embedding model preloaded; PostgreSQL initialized")
             else:
                 logger.info("PostgreSQL initialized; AI models will load on first request")
-            serve(app, host="127.0.0.1", port=19819, threads=4)
+            serve(app, host=SERVER_HOST, port=SERVER_PORT, threads=4)
     finally:
         logger.info("Shutting down server...")
         server_lifecycle.remove_pid_file()

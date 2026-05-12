@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SERVER_SCRIPT="${ROOT_DIR}/src/geniusai_server.py"
+
 export KMP_DUPLICATE_LIB_OK=TRUE
 
 DOTENV_FILE=""
@@ -36,6 +39,47 @@ load_dotenv() {
   set +a
 }
 
+is_truthy() {
+  case "${1:-}" in
+    1|[Tt][Rr][Uu][Ee]|[Yy][Ee][Ss]|[Oo][Nn])
+      return 0
+      ;;
+    0|[Ff][Aa][Ll][Ss][Ee]|[Nn][Oo]|[Oo][Ff][Ff]|"")
+      return 1
+      ;;
+    *)
+      echo "error: invalid boolean value: $1" >&2
+      exit 1
+      ;;
+  esac
+}
+
+ensure_dir_writable() {
+  local path="$1"
+  local flag_name="$2"
+
+  if [[ -e "$path" && ! -d "$path" ]]; then
+    echo "error: ${flag_name} must be a directory, got file: $path" >&2
+    return 1
+  fi
+
+  if [[ ! -d "$path" ]]; then
+    mkdir -p "$path" 2>/dev/null || {
+      echo "error: failed to create directory for ${flag_name}: $path" >&2
+      return 1
+    }
+  fi
+
+  if [[ ! -w "$path" ]]; then
+    chmod u+w "$path" 2>/dev/null || true
+  fi
+
+  if [[ ! -w "$path" ]]; then
+    echo "error: directory for ${flag_name} is not writable: $path" >&2
+    return 1
+  fi
+}
+
 if [[ -n "$DOTENV_FILE" ]]; then
   load_dotenv "$DOTENV_FILE"
 fi
@@ -44,14 +88,29 @@ POSTGRE_URL="${POSTGRE_URL:-${POSTGRES_URL:-${GENIUSAI_POSTGRES_URL:-${GENIUSAI_
 POSTGRE_USER="${POSTGRE_USER:-${POSTGRES_USER:-${GENIUSAI_POSTGRES_USER:-}}}"
 POSTGRE_PASSWORD="${POSTGRE_PASSWORD:-${POSTGRES_PASSWORD:-${GENIUSAI_POSTGRES_PASSWORD:-}}}"
 DATABASE_NAME="${GENIUSAI_DATABASE_NAME:-}"
-DATA_DIR="${GENIUSAI_DATA_DIR:-}"
-LLM_ID="${GENIUSAI_LLM_ID:-ollama}"
-EMBEDDING_ID="${GENIUSAI_EMBEDDING_ID:-Qwen/Qwen3-Embedding-0.6B}"
+SERVER_HOST="${GENIUSAI_SERVER_HOST:-}"
+SERVER_PORT="${GENIUSAI_SERVER_PORT:-}"
 MODEL_CACHE_PATH="${MODEL_CACHE_PATH:-./cache}"
 FETCH_MODELS_FLAG=""
 DEBUG_FLAG=""
-DEBUG_IN_FILE_PATH=""
+DEBUG_IN_FILE_PATH="${GENIUSAI_DEBUG_IN_FILE:-}"
 PRELOAD_MODELS_FLAG="--preload-models"
+
+if [[ -n "${GENIUSAI_FETCH_MODELS:-}" ]] && is_truthy "${GENIUSAI_FETCH_MODELS}"; then
+  FETCH_MODELS_FLAG="--fetch-models"
+fi
+
+if [[ -n "${GENIUSAI_DEBUG:-}" ]] && is_truthy "${GENIUSAI_DEBUG}"; then
+  DEBUG_FLAG="--debug"
+fi
+
+if [[ -n "${GENIUSAI_PRELOAD_MODELS:-}" ]]; then
+  if is_truthy "${GENIUSAI_PRELOAD_MODELS}"; then
+    PRELOAD_MODELS_FLAG="--preload-models"
+  else
+    PRELOAD_MODELS_FLAG=""
+  fi
+fi
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -87,12 +146,20 @@ while [[ $# -gt 0 ]]; do
       DOTENV_FILE="$2"
       shift 2
       ;;
-    --data-dir|--db-path)
+    --host)
       if [[ $# -lt 2 ]]; then
-        echo "error: $1 requires a value" >&2
+        echo "error: --host requires a value" >&2
         exit 1
       fi
-      DATA_DIR="$2"
+      SERVER_HOST="$2"
+      shift 2
+      ;;
+    --port)
+      if [[ $# -lt 2 ]]; then
+        echo "error: --port requires a value" >&2
+        exit 1
+      fi
+      SERVER_PORT="$2"
       shift 2
       ;;
     --postgre-url|--postgres-url)
@@ -142,64 +209,35 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-ensure_data_dir_writable() {
-  local path="$1"
-
-  if [[ -e "$path" && ! -d "$path" ]]; then
-    echo "error: --data-dir must be a directory, got file: $path" >&2
-    return 1
-  fi
-
-  if [[ ! -d "$path" ]]; then
-    mkdir -p "$path" 2>/dev/null || {
-      echo "error: failed to create data directory: $path" >&2
-      return 1
-    }
-  fi
-
-  if [[ ! -w "$path" ]]; then
-    chmod u+w "$path" 2>/dev/null || true
-  fi
-
-  if [[ ! -w "$path" ]]; then
-    echo "error: data directory is not writable: $path" >&2
-    return 1
-  fi
-}
-
-ensure_data_dir_writable "$MODEL_CACHE_PATH"
-
 if [[ -n "$MODEL_CACHE_PATH" ]]; then
-  if [[ -e "$MODEL_CACHE_PATH" && ! -d "$MODEL_CACHE_PATH" ]]; then
-    echo "error: --model-cache-path must be a directory, got file: $MODEL_CACHE_PATH" >&2
-    exit 1
-  fi
-
-  if [[ ! -d "$MODEL_CACHE_PATH" ]]; then
-    mkdir -p "$MODEL_CACHE_PATH" 2>/dev/null || {
-      echo "error: failed to create model cache directory: $MODEL_CACHE_PATH" >&2
-      exit 1
-    }
-  fi
-
-  if [[ ! -w "$MODEL_CACHE_PATH" ]]; then
-    chmod u+w "$MODEL_CACHE_PATH" 2>/dev/null || true
-  fi
-
-  if [[ ! -w "$MODEL_CACHE_PATH" ]]; then
-    echo "error: model cache directory is not writable: $MODEL_CACHE_PATH" >&2
-    exit 1
-  fi
+  ensure_dir_writable "$MODEL_CACHE_PATH" "--model-cache-path"
 fi
 
-cmd=(
-  uv run python src/geniusai_server.py
-  --postgre-url "$POSTGRE_URL"
-  --database-name "$DATABASE_NAME"
-)
+if [[ -x "${ROOT_DIR}/.venv/bin/python" ]]; then
+  PYTHON_CMD=("${ROOT_DIR}/.venv/bin/python")
+elif command -v uv >/dev/null 2>&1; then
+  PYTHON_CMD=(uv --project "$ROOT_DIR" run python)
+elif command -v python >/dev/null 2>&1; then
+  PYTHON_CMD=(python)
+elif command -v python3 >/dev/null 2>&1; then
+  PYTHON_CMD=(python3)
+else
+  echo "error: no python interpreter found" >&2
+  exit 1
+fi
 
-if [[ -n "$DATA_DIR" ]]; then
-  cmd+=(--data-dir "$DATA_DIR")
+cmd=("${PYTHON_CMD[@]}" "$SERVER_SCRIPT" --postgre-url "$POSTGRE_URL")
+
+if [[ -n "$DATABASE_NAME" ]]; then
+  cmd+=(--database-name "$DATABASE_NAME")
+fi
+
+if [[ -n "$SERVER_HOST" ]]; then
+  cmd+=(--host "$SERVER_HOST")
+fi
+
+if [[ -n "$SERVER_PORT" ]]; then
+  cmd+=(--port "$SERVER_PORT")
 fi
 
 if [[ -n "$FETCH_MODELS_FLAG" ]]; then
@@ -230,4 +268,4 @@ if [[ -n "$MODEL_CACHE_PATH" ]]; then
   cmd+=(--model-cache-path "$MODEL_CACHE_PATH")
 fi
 
-"${cmd[@]}"
+exec "${cmd[@]}"

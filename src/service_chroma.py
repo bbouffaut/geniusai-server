@@ -2,7 +2,10 @@ import chromadb
 from chromadb.config import Settings
 import os
 import numpy as np
-from config import DB_PATH, TEXT_EMBEDDING_DIMENSION, logger
+from config import TEXT_EMBEDDING_DIMENSION, logger
+
+
+CHROMA_DB_PATH = os.path.abspath("chroma")
 
 
 # --- ChromaDB Client and Collection Initialization (Lazy) ---
@@ -19,7 +22,7 @@ def _ensure_initialized():
         return
     
     logger.info("Initializing ChromaDB client (lazy)...")
-    chroma_client = chromadb.PersistentClient(path=DB_PATH, settings=Settings(anonymized_telemetry=False))
+    chroma_client = chromadb.PersistentClient(path=CHROMA_DB_PATH, settings=Settings(anonymized_telemetry=False))
 
     # Store/search metadata embeddings separately from the previous image-vector
     # collection because Chroma collection dimensions are immutable.
@@ -211,7 +214,7 @@ def get_db_stats():
     _ensure_initialized()
     metadata_result = get_image_metadatas()
     count = len(metadata_result['ids'])
-    db_size = sum(os.path.getsize(os.path.join(dirpath, filename)) for dirpath, dirnames, filenames in os.walk(DB_PATH) for filename in filenames) / (1024 * 1024)
+    db_size = sum(os.path.getsize(os.path.join(dirpath, filename)) for dirpath, dirnames, filenames in os.walk(CHROMA_DB_PATH) for filename in filenames) / (1024 * 1024)
     
     min_aesthetic_score, max_aesthetic_score, aesthetic_rated_count = None, None, 0
     min_technical_score, max_technical_score, technical_rated_count = None, None, 0

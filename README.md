@@ -17,7 +17,6 @@ macOS/Linux:
 ```bash
 cp .env.postgre.example .env.postgre.local
 ./run.sh --fetch-models #populate cache with models
-./run.sh --data-dir <data_dir> # specify runtime log/pid directory
 ./run.sh --dotenv .env.postgre.local # load PostgreSQL and model cache settings from a git-ignored dotenv file
 ./run.sh --database-name <database_name> # use an explicit PostgreSQL database name
 ./run.sh --model-cache-path <model_cache_path> # override embedding model cache path
@@ -30,6 +29,19 @@ cp .env.postgre.example .env.postgre.local
 #./run.sh --database-name "llava-qwen3"
 ```
 
+### Docker
+
+Build the image, then start the container with Docker Compose:
+
+```bash
+./build-docker-image.sh
+docker compose up
+```
+
+The compose file loads the prebuilt `geniusai-server:latest` image, mounts `./.env` into `/config` as read-only, and sets `GENIUSAI_DOTENV_FILENAME` so the entrypoint picks the dotenv file from that mounted directory.
+
+Runtime arguments such as host, port, preload/debug flags, and model cache path are read from the selected dotenv file. The default compose port mapping is `19819:19819`, so `GENIUSAI_SERVER_PORT` in that file should remain `19819` unless you also update [docker-compose.yml](/Users/baptiste/workspace/geniusai-server/docker-compose.yml:1).
+
 The embedding model cache path controls where the Hugging Face metadata text embedding model is stored and loaded from. It is passed to Hugging Face as `cache_dir`, so the model will be stored under that directory using Hugging Face's cache layout.
 Command-line wrapper launches preload the embedding model before the server accepts requests. Plugin launches keep lazy loading unless they pass `--preload-models`.
 
@@ -40,7 +52,7 @@ The server stores metadata and vectors in PostgreSQL with the `pgvector` extensi
 Database selection is configuration-driven:
 
 - PostgreSQL connection settings and the model cache path belong in `.env.postgre.local`, which is ignored by git. The Makefile uses this file through `LOCAL_DOTENV ?= .env.postgre.local`.
-- The dotenv file supports `GENIUSAI_POSTGRES_URL`, `GENIUSAI_POSTGRES_USER`, `GENIUSAI_POSTGRES_PASSWORD`, `GENIUSAI_DATABASE_NAME`, and `MODEL_CACHE_PATH`.
+- The dotenv file supports database settings plus runtime flags such as `GENIUSAI_SERVER_HOST`, `GENIUSAI_SERVER_PORT`, `MODEL_CACHE_PATH`, `GENIUSAI_FETCH_MODELS`, `GENIUSAI_PRELOAD_MODELS`, `GENIUSAI_DEBUG`, and `GENIUSAI_DEBUG_IN_FILE`.
 - `--database-name <name>` uses an explicit database.
 - Switching database is done by passing a different `--database-name`.
 

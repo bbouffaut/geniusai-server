@@ -2,9 +2,10 @@ import os
 import time
 import signal
 from config import (
-    DATA_DIR,
     FETCH_MODELS,
     MODEL_CACHE_PATH,
+    OK_FILE_PATH,
+    PID_FILE_PATH,
     TEXT_EMBEDDING_MAX_LENGTH,
     TEXT_EMBEDDING_MODEL_ID,
     TEXT_EMBEDDING_QUERY_INSTRUCTION,
@@ -356,30 +357,23 @@ def get_tokenizer():
     _ensure_unloader_thread()
     return tokenizer
 
-def get_db_dir():
-    return DATA_DIR
-
 def write_pid_file():
-    pid_file = os.path.join(get_db_dir(), "lrgenius-server.pid")
-    with open(pid_file, "w") as f:
+    with open(PID_FILE_PATH, "w") as f:
         f.write(str(os.getpid()))
 
 def remove_pid_file():
-    pid_file = os.path.join(get_db_dir(), "lrgenius-server.pid")
     try:
-        os.remove(pid_file)
+        os.remove(PID_FILE_PATH)
     except FileNotFoundError:
         pass
 
 def write_ok_file():
-    ok_file = os.path.join(get_db_dir(), "lrgenius-server.OK")
-    with open(ok_file, "w") as f:
+    with open(OK_FILE_PATH, "w") as f:
         f.write("OK\n")
 
 def remove_ok_file():
-    ok_file = os.path.join(get_db_dir(), "lrgenius-server.OK")
     try:
-        os.remove(ok_file)
+        os.remove(OK_FILE_PATH)
     except FileNotFoundError:
         pass
 

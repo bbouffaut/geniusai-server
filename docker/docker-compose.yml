@@ -1,0 +1,14 @@
+services:
+  geniusai-server:
+    network_mode: bridge
+    image: registry.gitlab.com/skails/geniusai-server:1.0-arm64
+    container_name: geniusai-server
+    environment:
+      GENIUSAI_DOTENV_FILENAME: /config/.env.prod
+    restart: unless-stopped
+    ports:
+      - "19819:19819"
+    volumes:
+      - /mnt/nfs/srv/1-workspace/raspberry20_services/geniuai-server/config:/config:ro
+    tmpfs:
+      - /tmp/geniusai

@@ -1,0 +1,16 @@
+.DS_Store
+.claude
+.codacy
+.cursor
+.env
+.git
+.github
+.venv
+.vscode
+build
+cache
+dist
+local-postgre
+lrgenius-server.log
+output.log
+tests

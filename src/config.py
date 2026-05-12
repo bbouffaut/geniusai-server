@@ -26,12 +26,6 @@ def build_database_name(llm_id, embedding_id):
 # --- Argument Parsing ---
 parser = argparse.ArgumentParser(description='LrGenius Server')
 parser.add_argument(
-    '--db-path',
-    type=str,
-    help='Runtime data directory for logs and pid files (kept for backwards compatibility)',
-)
-parser.add_argument('--data-dir', type=str, help='Runtime data directory for logs and pid files')
-parser.add_argument(
     '--postgre-url',
     '--postgres-url',
     dest='postgre_url',
@@ -61,6 +55,18 @@ parser.add_argument(
     default=os.environ.get("GENIUSAI_DATABASE_NAME"),
     help='PostgreSQL database name to use. Defaults to <llm-id>-<embedding-id>.',
 )
+parser.add_argument(
+    '--host',
+    type=str,
+    default='127.0.0.1',
+    help='Host interface to bind the HTTP server to',
+)
+parser.add_argument(
+    '--port',
+    type=int,
+    default=19819,
+    help='Port to listen on',
+)
 
 parser.add_argument('--debug', action='store_true', help='Enable debug mode with auto-reloading and debug log level')
 parser.add_argument(
@@ -74,8 +80,6 @@ parser.add_argument('--preload-models', action='store_true', help='Load embeddin
 args = parser.parse_args()
 
 # --- Constants ---
-DATA_DIR = os.path.abspath(os.path.expanduser(args.data_dir or args.db_path or os.getcwd()))
-DB_PATH = DATA_DIR
 POSTGRE_URL = args.postgre_url
 POSTGRE_USER = args.postgre_user
 POSTGRE_PASSWORD = args.postgre_password
@@ -90,6 +94,11 @@ DEBUG_IN_FILE_PATH = (
     else None
 )
 DEBUG_IN_FILE = DEBUG_IN_FILE_PATH is not None
+SERVER_HOST = args.host
+SERVER_PORT = args.port
+LOG_PATH = os.path.abspath("lrgenius-server.log")
+PID_FILE_PATH = os.path.abspath("lrgenius-server.pid")
+OK_FILE_PATH = os.path.abspath("lrgenius-server.OK")
 
 # --- Code Style Preferences ---
 USE_EMOJIS = False  # Set to False to avoid emojis in logs and output
@@ -179,10 +188,6 @@ OLLAMA_BASE_URL = "http://localhost:11434"
 MISTRAL_BASE_URL = "https://api.mistral.ai/v1"
 ANTHROPIC_BASE_URL = "https://api.anthropic.com/v1"
 ANTHROPIC_API_VERSION = "2023-06-01"
-
-# --- Logger Setup ---
-os.makedirs(DATA_DIR, exist_ok=True)
-LOG_PATH = os.path.join(DATA_DIR, "lrgenius-server.log")
 
 log_level = logging.DEBUG if DEBUG_MODE else logging.INFO
 root_log_level = logging.DEBUG if DEBUG_MODE or DEBUG_IN_FILE else logging.INFO
