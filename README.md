@@ -44,7 +44,9 @@ Runtime arguments such as host, port, preload/debug flags, and model cache path 
 
 `GENIUSAI_DATA_DIR` in the selected dotenv controls where the server writes `lrgenius-server.log`, `lrgenius-server.pid`, and `lrgenius-server.OK`. For Docker, mount a writable volume to the same in-container path you set in `GENIUSAI_DATA_DIR`.
 
-`GENIUSAI_UPLOAD_TEMP_DIR` controls where multipart uploads received by `/index` are temporarily staged while Flask parses the request. If unset, it defaults to `<GENIUSAI_DATA_DIR>/uploads-temp`.
+`GENIUSAI_UPLOAD_TEMP_DIR` controls where multipart uploads received by `/index` and `/index_by_reference` are temporarily staged while Flask parses the request. If unset, it defaults to `<GENIUSAI_DATA_DIR>/uploads-temp`.
+
+Indexing requests must upload photos in `multipart/form-data` using repeated `image` file fields and matching `uuid` fields. Server-side file paths in the request body are no longer supported.
 
 The embedding model cache path controls where the Hugging Face metadata text embedding model is stored and loaded from. It is passed to Hugging Face as `cache_dir`, so the model will be stored under that directory using Hugging Face's cache layout.
 Command-line wrapper launches preload the embedding model before the server accepts requests. Plugin launches keep lazy loading unless they pass `--preload-models`.

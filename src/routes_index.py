@@ -2,10 +2,12 @@ from flask import Blueprint, request, jsonify
 import time
 from collections import deque
 import os
+import shutil
+import tempfile
 
 #import service_chroma as postgre_service
 import service_postgre as postgre_service
-from config import DEFAULT_METADATA_LANGUAGE, logger
+from config import DEFAULT_METADATA_LANGUAGE, UPLOAD_TEMP_DIR, logger
 from service_index import keywords_with_generation_model, process_image_task
 import base64
 import json
@@ -85,59 +87,182 @@ def _extract_options(data):
     
     return options
 
+
+def _extract_uploaded_images(files):
+    for field_name in ('image', 'images'):
+        uploaded_images = files.getlist(field_name)
+        if uploaded_images:
+            return uploaded_images
+    return []
+
+
+def _extract_uploaded_uuids(form):
+    uuids = form.getlist('uuid')
+    if uuids:
+        return uuids
+
+    uuids = form.getlist('uuids')
+    if len(uuids) > 1:
+        return [uuid for uuid in uuids if uuid]
+
+    raw_uuids = form.get('uuids')
+    if not raw_uuids:
+        return []
+
+    if isinstance(raw_uuids, str):
+        try:
+            parsed_uuids = json.loads(raw_uuids)
+        except json.JSONDecodeError:
+            parsed_uuids = [uuid.strip() for uuid in raw_uuids.split(',')]
+    else:
+        parsed_uuids = raw_uuids
+
+    if isinstance(parsed_uuids, list):
+        return [str(uuid).strip() for uuid in parsed_uuids if str(uuid).strip()]
+
+    return []
+
+
+def _record_batch_timing(batch_size):
+    current_time = time.time()
+    for _ in range(batch_size):
+        request_timestamps.append(current_time)
+
+    if len(request_timestamps) <= 10:
+        return
+
+    time_span = request_timestamps[-1] - request_timestamps[0]
+    if time_span <= 1:
+        return
+
+    images_per_second = len(request_timestamps) / time_span
+    logger.info(f"Indexing at {images_per_second:.2f} images/sec")
+
+
+def _is_upload_temp_path(path):
+    if not path:
+        return False
+
+    try:
+        absolute_path = os.path.abspath(path)
+        return (
+            os.path.isfile(absolute_path)
+            and os.path.commonpath([absolute_path, UPLOAD_TEMP_DIR]) == UPLOAD_TEMP_DIR
+        )
+    except (TypeError, ValueError):
+        return False
+
+
+def _ensure_uploaded_file_path(file_storage):
+    staged_path = getattr(getattr(file_storage, 'stream', None), 'name', None)
+    if _is_upload_temp_path(staged_path):
+        return os.path.abspath(staged_path), False
+
+    suffix = os.path.splitext(file_storage.filename or '')[1]
+    with tempfile.NamedTemporaryFile(
+        mode='w+b',
+        prefix='geniusai-upload-',
+        suffix=suffix,
+        dir=UPLOAD_TEMP_DIR,
+        delete=False,
+    ) as staged_file:
+        upload_stream = file_storage.stream
+        if hasattr(upload_stream, 'seek'):
+            try:
+                upload_stream.seek(0)
+            except (OSError, ValueError):
+                pass
+        shutil.copyfileobj(upload_stream, staged_file)
+        return staged_file.name, True
+
+
+def _build_uploaded_image_triplets(images, uuids):
+    image_triplets = []
+    upload_failures = 0
+
+    for index, file_storage in enumerate(images):
+        uuid = uuids[index]
+        if not file_storage or not uuid:
+            logger.warning("Skipping an entry in the batch due to missing file or uuid.")
+            upload_failures += 1
+            continue
+
+        staged_path = None
+        should_delete_staged_path = False
+        try:
+            staged_path, should_delete_staged_path = _ensure_uploaded_file_path(file_storage)
+            with open(staged_path, 'rb') as staged_file:
+                image_data = staged_file.read()
+
+            filename = file_storage.filename or os.path.basename(staged_path)
+            logger.debug(f"Prepared uploaded image for UUID {uuid} from temp file {staged_path}")
+            image_triplets.append((image_data, uuid, filename))
+        except Exception as e:
+            logger.error(f"Error preparing uploaded file for UUID {uuid}: {e}", exc_info=True)
+            upload_failures += 1
+        finally:
+            if should_delete_staged_path and staged_path:
+                try:
+                    os.remove(staged_path)
+                except OSError as cleanup_error:
+                    logger.warning(f"Failed to remove staged upload temp file {staged_path}: {cleanup_error}")
+
+    return image_triplets, upload_failures
+
+
+def _index_uploaded_images(request_log_message):
+    logger.info(request_log_message)
+
+    images = _extract_uploaded_images(request.files)
+    uuids = _extract_uploaded_uuids(request.form)
+    options = _extract_options(request.form)
+
+    if not images or not uuids or len(images) != len(uuids):
+        return jsonify({
+            "error": (
+                "Mismatch between number of images and UUIDs, or no images provided. "
+                "Upload files as multipart/form-data with repeated 'image' and 'uuid' fields."
+            )
+        }), 400
+
+    batch_size = len(images)
+    _record_batch_timing(batch_size)
+
+    image_triplets, upload_failures = _build_uploaded_image_triplets(images, uuids)
+
+    if not image_triplets:
+        logger.info("No valid uploaded images to process in the batch.")
+        return jsonify({
+            "status": "processed",
+            "success_count": 0,
+            "failure_count": upload_failures or batch_size,
+        }), 200
+
+    success_count, processing_failures = process_image_task(
+        image_triplets,
+        options=options
+    )
+    total_failures = upload_failures + processing_failures
+
+    logger.info(f"Batch processing complete. Success: {success_count}, Failures: {total_failures}.")
+
+    if success_count == 0:
+        logger.warning("No images were successfully processed in the batch.")
+        return jsonify({"error": "No images were successfully processed"}), 500
+
+    return jsonify({
+        "status": "processed",
+        "success_count": success_count,
+        "failure_count": total_failures,
+    }), 200
+
 @index_bp.route('/index', methods=['POST'])
 def index_images_batch():
     """
     Receives a batch of images, processes them synchronously, and indexes them.
     Returns a 200 OK status once all images are processed.
     """
-    logger.info("Index request received")
-    images = request.files.getlist('image')
-    uuids = request.form.getlist('uuid')
-    
-    options = _extract_options(request.form)
-
-    if not images or not uuids or len(images) != len(uuids):
-        return jsonify({"error": "Mismatch between number of images and UUIDs, or no images provided"}), 400
-
-    batch_size = len(images)
-    current_time = time.time()
-    for _ in range(batch_size):
-        request_timestamps.append(current_time)
-
-    if len(request_timestamps) > 10:
-        time_span = request_timestamps[-1] - request_timestamps[0]
-        if time_span > 1:
-            images_per_second = len(request_timestamps) / time_span
-            logger.info(f"Indexing at {images_per_second:.2f} images/sec")
-
-    image_triplets = []
-    for i in range(batch_size):
-        file = images[i]
-        uuid = uuids[i]
-
-        if not file or not uuid:
-            logger.warning(f"Skipping an entry in the batch due to missing file or uuid.")
-            continue
-
-        image_triplets.append((file.read(), uuid, file.filename))
-
-    if not image_triplets:
-        logger.info("No valid images to process in the batch.")
-        return jsonify({"status": "processed", "success_count": 0, "failure_count": batch_size}), 200
-
-    success_count, failure_count = process_image_task(
-        image_triplets,
-        options=options
-    )
-    
-    logger.info(f"Batch processing complete. Success: {success_count}, Failures: {failure_count}.")
-    
-    if success_count == 0:
-        logger.warning("No images were successfully processed in the batch.")
-        return jsonify({"error": "No images were successfully processed"}), 500
-    
-    return jsonify({"status": "processed", "success_count": success_count, "failure_count": failure_count}), 200
+    return _index_uploaded_images("Index request received")
 
 @index_bp.route('/index_base64', methods=['POST'])
 def index_images_batch_base64():
@@ -179,73 +304,19 @@ def index_images_batch_base64():
 @index_bp.route('/index_by_reference', methods=['POST'])
 def index_images_batch_by_reference():
     """
-    Receives a batch of image references in a JSON payload, processes them, 
-    and indexes them.
+    Deprecated alias of /index. Path-based indexing is no longer supported.
+    Clients must upload image files as multipart/form-data.
     """
-    logger.info("Index by reference request received")
-    data = request.get_json()
+    if request.is_json:
+        logger.warning("Rejected path-based /index_by_reference payload. Multipart uploads are required.")
+        return jsonify({
+            "error": (
+                "Path-based indexing is no longer supported. "
+                "Upload files as multipart/form-data with repeated 'image' and 'uuid' fields."
+            )
+        }), 400
 
-    if not data:
-        return jsonify({"error": "No JSON payload provided"}), 400
-    
-    logger.debug(f"Index by reference payload: {data}")
-
-    options = _extract_options(data)
-    
-    # Extract image list
-    images_data = data.get('images', [])
-
-    # Use a list comprehension to extract the paths and UUIDs.
-    paths = [item.get('path') for item in images_data]
-    uuids = [item.get('uuid') for item in images_data]
-
-    # Check for missing keys or mismatched lengths (robustness).
-    if not all(paths) or not all(uuids) or len(paths) != len(uuids):
-        return jsonify({"error": "Mismatch in data, or missing 'path' or 'uuid' keys in some objects"}), 400
-
-    batch_size = len(paths)
-
-    image_triplets = []
-    failed_paths = []
-    for i in range(batch_size):
-        path = paths[i]
-        uuid = uuids[i]
-
-        if not path or not uuid:
-            logger.warning(f"Skipping an entry in the batch due to missing file or uuid.")
-            continue
-
-        try:
-            with open(path, 'rb') as file:
-                image_data = file.read()
-
-            filename = os.path.basename(path)
-            image_triplets.append((image_data, uuid, filename))
-        except FileNotFoundError:
-            logger.warning(f"File not found at path: {path}. Skipping.")
-            failed_paths.append(path)
-        except Exception as e:
-            logger.error(f"Error processing file at path {path}: {e}")
-            failed_paths.append(path)
-
-    read_failures = len(failed_paths)
-    if not image_triplets:
-        logger.info("No valid image paths to process in the batch.")
-        return jsonify({"status": "processed", "success_count": 0, "failure_count": read_failures}), 200
-
-    success_count, processing_failures = process_image_task(
-        image_triplets,
-        options=options
-    )
-    total_failures = read_failures + processing_failures
-    
-    logger.info(f"Batch processing by reference complete. Success: {success_count}, Failures: {total_failures} ({read_failures} read failures, {processing_failures} processing failures).")
-
-    if success_count == 0:
-        logger.warning("No images were successfully processed in the batch.")
-        return jsonify({"error": "No images were successfully processed"}), 500
-    
-    return jsonify({"status": "processed", "success_count": success_count, "failure_count": total_failures}), 200
+    return _index_uploaded_images("Index by reference request received as multipart upload")
 
 
 @index_bp.route('/remove', methods=['POST'])
