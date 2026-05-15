@@ -79,6 +79,18 @@ parser.add_argument('--model-cache-path', type=str, help='Path to store/load the
 parser.add_argument('--preload-models', action='store_true', help='Load embedding models during server startup')
 args = parser.parse_args()
 
+
+def _resolve_data_dir():
+    configured_data_dir = os.environ.get("GENIUSAI_DATA_DIR")
+    return os.path.abspath(os.path.expanduser(configured_data_dir or os.getcwd()))
+
+
+def _resolve_upload_temp_dir(data_dir):
+    configured_upload_temp_dir = os.environ.get("GENIUSAI_UPLOAD_TEMP_DIR")
+    base_path = configured_upload_temp_dir or os.path.join(data_dir, "uploads-temp")
+    return os.path.abspath(os.path.expanduser(base_path))
+
+
 # --- Constants ---
 POSTGRE_URL = args.postgre_url
 POSTGRE_USER = args.postgre_user
@@ -96,9 +108,11 @@ DEBUG_IN_FILE_PATH = (
 DEBUG_IN_FILE = DEBUG_IN_FILE_PATH is not None
 SERVER_HOST = args.host
 SERVER_PORT = args.port
-LOG_PATH = os.path.abspath("lrgenius-server.log")
-PID_FILE_PATH = os.path.abspath("lrgenius-server.pid")
-OK_FILE_PATH = os.path.abspath("lrgenius-server.OK")
+DATA_DIR = _resolve_data_dir()
+UPLOAD_TEMP_DIR = _resolve_upload_temp_dir(DATA_DIR)
+LOG_PATH = os.path.join(DATA_DIR, "lrgenius-server.log")
+PID_FILE_PATH = os.path.join(DATA_DIR, "lrgenius-server.pid")
+OK_FILE_PATH = os.path.join(DATA_DIR, "lrgenius-server.OK")
 
 # --- Code Style Preferences ---
 USE_EMOJIS = False  # Set to False to avoid emojis in logs and output
@@ -192,6 +206,8 @@ ANTHROPIC_API_VERSION = "2023-06-01"
 log_level = logging.DEBUG if DEBUG_MODE else logging.INFO
 root_log_level = logging.DEBUG if DEBUG_MODE or DEBUG_IN_FILE else logging.INFO
 
+os.makedirs(DATA_DIR, exist_ok=True)
+os.makedirs(UPLOAD_TEMP_DIR, exist_ok=True)
 main_file_handler = logging.FileHandler(LOG_PATH, encoding='utf-8')
 main_file_handler.setLevel(log_level)
 

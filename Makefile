@@ -11,11 +11,5 @@ dev-ssd:
 dev-local:
 	KMP_DUPLICATE_LIB_OK=TRUE $(RUN_SCRIPT) --dotenv $(DOTENV_LOCAL)
 
-dev-local-fetch-models:
-	KMP_DUPLICATE_LIB_OK=TRUE $(RUN_SCRIPT) --dotenv $(DOTENV_LOCAL)
-
-dev-debug-in-file:
-	KMP_DUPLICATE_LIB_OK=TRUE $(RUN_SCRIPT) --dotenv $(DOTENV_SSD)
-
 prod:
 	$(RUN_SCRIPT) --dotenv $(DOTENV_PROD)

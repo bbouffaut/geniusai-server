@@ -1,7 +1,8 @@
 import os
 import sys
 import json
-from flask import Flask, jsonify, request
+import tempfile
+from flask import Flask, Request, jsonify, request
 from waitress import serve
 import datetime
 
@@ -13,6 +14,7 @@ from config import (
     PRELOAD_MODELS,
     SERVER_HOST,
     SERVER_PORT,
+    UPLOAD_TEMP_DIR,
     args,
     logger,
     raw_debug_logger,
@@ -30,7 +32,14 @@ from routes_server import server_bp
 from routes_import import import_bp
 import service_postgre as postgre_service
 
+
+class GeniusAIRequest(Request):
+    def _get_file_stream(self, total_content_length, content_type, filename=None, content_length=None):
+        return tempfile.NamedTemporaryFile(mode="w+b", prefix="geniusai-upload-", dir=UPLOAD_TEMP_DIR, delete=True)
+
+
 app = Flask(__name__)
+app.request_class = GeniusAIRequest
 logger.info("Flask app created")
 
 
@@ -178,6 +187,7 @@ if __name__ == "__main__":
     logger.info(f"Python: {sys.version.split()[0]}")
     logger.info(f"PostgreSQL: {postgre_service.describe_connection_target()}")
     logger.info(f"Database: {POSTGRE_DATABASE_NAME}")
+    logger.info(f"Upload temp dir: {UPLOAD_TEMP_DIR}")
     if DEBUG_IN_FILE_PATH:
         logger.warning(
             "Raw debug logging enabled; unredacted LLM request payloads "
