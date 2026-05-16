@@ -74,7 +74,7 @@ def test_process_image_task_stores_search_fields(monkeypatch):
         options={
             "provider": "ollama",
             "model": "gpt-4o",
-            "date_time": "2026-05-02 12:34:56",
+            "photo_date": "2026-05-02 12:34:56",
             "compute_embeddings": False,
             "compute_metadata": True,
             "compute_quality": False,
@@ -95,7 +95,7 @@ def test_process_image_task_stores_search_fields(monkeypatch):
     assert stored_metadata["photo_date"] == "2026-05-02 12:34:56"
 
 
-def test_process_image_task_stores_photos_date_alias(monkeypatch):
+def test_process_image_task_stores_photo_date_contract_field(monkeypatch):
     fake_config = types.ModuleType("config")
     fake_config.TEXT_EMBEDDING_MODEL_ID = "text-model"
     fake_config.logger = _make_logger()
@@ -150,7 +150,7 @@ def test_process_image_task_stores_photos_date_alias(monkeypatch):
         options={
             "provider": "ollama",
             "model": "gpt-4o",
-            "photos_date": "2026-05-02 12:34:56",
+            "photo_date": "2026-05-02 12:34:56",
             "compute_embeddings": False,
             "compute_metadata": True,
             "compute_quality": False,

@@ -19,7 +19,7 @@ def _make_logger():
     )
 
 
-def test_import_metadata_task_normalizes_photos_date(monkeypatch):
+def test_import_metadata_task_stores_photo_date_contract_field(monkeypatch):
     fake_config = types.ModuleType("config")
     fake_config.logger = _make_logger()
 
@@ -50,7 +50,7 @@ def test_import_metadata_task_normalizes_photos_date(monkeypatch):
             {
                 "uuid": "photo-1",
                 "caption": "Sunset over the sea",
-                "photos_date": "2026-05-02 12:34:56",
+                "photo_date": "2026-05-02 12:34:56",
             }
         ]
     )
@@ -60,4 +60,3 @@ def test_import_metadata_task_normalizes_photos_date(monkeypatch):
     assert len(captured_updates) == 1
     assert captured_updates[0]["metadata"]["caption"] == "Sunset over the sea"
     assert captured_updates[0]["metadata"]["photo_date"] == "2026-05-02 12:34:56"
-    assert "photos_date" not in captured_updates[0]["metadata"]

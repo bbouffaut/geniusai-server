@@ -107,7 +107,7 @@ def test_get_returns_all_photos_when_body_empty(monkeypatch):
     assert payload["photos"][0]["metadata"]["exif"]["camera"] == "Nikon D850"
 
 
-def test_get_filters_photos_by_aliases_and_nested_metadata(monkeypatch):
+def test_get_filters_photos_by_fields_and_nested_metadata(monkeypatch):
     app = _install_get_fakes(
         monkeypatch,
         photo_data={
@@ -163,7 +163,7 @@ def test_get_filters_photos_by_aliases_and_nested_metadata(monkeypatch):
                     "uuid": "photo-a",
                     "filename": "alpha.jpg",
                     "ai_run_date": "2026-05-01 10:00:00",
-                    "photos_date": "2026-04-30",
+                    "photo_date": "2026-04-30",
                     "quality": {
                         "overall_score": 9.1,
                     },

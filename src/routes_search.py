@@ -59,13 +59,6 @@ def _parse_return_metadata(data):
     return True
 
 
-def _first_non_none(*values):
-    for value in values:
-        if value is not None:
-            return value
-    return None
-
-
 def _project_search_result(result, return_metadata=False):
     metadata = result.get('metadata')
     if metadata is None:
@@ -78,10 +71,8 @@ def _project_search_result(result, return_metadata=False):
         "filename": result.get("filename"),
         "match_type": result.get("match_type"),
         "pertinence_score": result.get("pertinence_score"),
-        "photo_date": _first_non_none(
-            result.get("photo_date"),
-            metadata.get("capture_time") if isinstance(metadata, dict) else None,
-            metadata.get("photo_date") if isinstance(metadata, dict) else None,
+        "photo_date": result.get("photo_date") or (
+            metadata.get("photo_date") if isinstance(metadata, dict) else None
         ),
         **({"metadata": metadata} if return_metadata else {}),
     }

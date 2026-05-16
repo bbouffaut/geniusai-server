@@ -162,7 +162,7 @@ def _build_search_result(uuid, metadata, distance, pertinence_score, match_type,
         "quality": _extract_quality_fields(metadata),
         "ai_model": _first_non_none(metadata.get("ai_model"), metadata.get("model")),
         "ai_rundate": _first_non_none(metadata.get("ai_rundate"), metadata.get("run_date")),
-        "photo_date": _first_non_none(metadata.get("photo_date"), metadata.get("capture_time")),
+        "photo_date": metadata.get("photo_date"),
     }
 
     if metadata_match:

@@ -19,6 +19,7 @@ index_bp = Blueprint('index', __name__)
 request_timestamps = deque(maxlen=100)
 
 INDEX_UPLOAD_REQUIRED_FIELDS = ("image", "uuid", "filename")
+INDEX_UNSUPPORTED_PHOTO_DATE_FIELDS = ("date_time", "photos_date")
 INDEX_UPLOAD_RESERVED_FIELDS = {
     "image",
     "images",
@@ -47,9 +48,8 @@ INDEX_UPLOAD_RESERVED_FIELDS = {
     "regenerate_metadata",
     "regenerateMetadata",
     "prompt",
-    "date_time",
     "photo_date",
-    "photos_date",
+    "submit_date_time",
     "tasks",
 }
 
@@ -94,7 +94,6 @@ GET_DATE_FIELDS = {
     "ai_rundate",
     "capture_time",
     "photo_date",
-    "photos_date",
     "run_date",
 }
 
@@ -154,8 +153,8 @@ def _extract_options(data):
         reg_val = data.get('regenerateMetadata', 'true')
     options['regenerate_metadata'] = str(reg_val).lower() == 'true'
     options['prompt'] = data.get('prompt')
-    options['date_time'] = data.get('date_time')
-    options['photo_date'] = _first_non_blank_value(data.get('photo_date'), data.get('photos_date'))
+    options['photo_date'] = data.get('photo_date')
+    options['submit_date_time'] = str(data.get('submit_date_time', 'false')).lower() == 'true'
 
     tasks_raw = data.get('tasks')
     if tasks_raw:
@@ -174,6 +173,10 @@ def _extract_options(data):
     options['compute_quality'] = 'quality' in tasks
     
     return options
+
+
+def _unsupported_photo_date_fields(data):
+    return [field for field in INDEX_UNSUPPORTED_PHOTO_DATE_FIELDS if field in data]
 
 
 def _extract_uploaded_images(files):
@@ -405,6 +408,15 @@ def _build_uploaded_image_triplets(images, uuids, filenames):
 
 def _index_uploaded_images(request_log_message):
     logger.info(request_log_message)
+
+    unsupported_fields = _unsupported_photo_date_fields(request.form)
+    if unsupported_fields:
+        return jsonify({
+            "error": (
+                f"Unsupported photo date field(s): {', '.join(unsupported_fields)}. "
+                "Use 'photo_date'."
+            )
+        }), 400
 
     images = _extract_uploaded_images(request.files)
     uuids = _extract_uploaded_uuids(request.form)
@@ -694,9 +706,10 @@ def _photo_matches_filters(uuid, metadata, filters):
                 normalized_metadata.get("ai_rundate"),
                 normalized_metadata.get("run_date"),
             )
-        elif normalized_key in {"photo_date", "photos_date", "capture_time"}:
+        elif normalized_key == "photo_date":
+            actual_value = normalized_metadata.get("photo_date")
+        elif normalized_key == "capture_time":
             actual_value = _first_non_blank_value(
-                normalized_metadata.get("photo_date"),
                 normalized_metadata.get("capture_time"),
             )
         else:
@@ -717,7 +730,7 @@ def _build_photo_response(uuid, metadata_dict):
 
     ai_model = _first_non_blank_value(metadata_dict.get("ai_model"), metadata_dict.get("model"))
     ai_rundate = _first_non_blank_value(metadata_dict.get("ai_rundate"), metadata_dict.get("run_date"))
-    photo_date = _first_non_blank_value(metadata_dict.get("photo_date"), metadata_dict.get("capture_time"))
+    photo_date = metadata_dict.get("photo_date")
     filename = metadata_dict.get("filename")
     provider = metadata_dict.get("provider")
 
@@ -814,6 +827,15 @@ def index_images_batch_base64():
 
     if not data:
         return jsonify({"error": "No JSON payload provided"}), 400
+
+    unsupported_fields = _unsupported_photo_date_fields(data)
+    if unsupported_fields:
+        return jsonify({
+            "error": (
+                f"Unsupported photo date field(s): {', '.join(unsupported_fields)}. "
+                "Use 'photo_date'."
+            )
+        }), 400
     
     # Extract required fields
     image = data.get('image')

@@ -46,7 +46,7 @@ Runtime arguments such as host, port, preload/debug flags, and model cache path 
 
 `GENIUSAI_UPLOAD_TEMP_DIR` controls where multipart uploads received by `/index` and `/index_by_reference` are temporarily staged while Flask parses the request. If unset, it defaults to `<GENIUSAI_DATA_DIR>/uploads-temp`.
 
-Indexing requests must upload photos in `multipart/form-data` using repeated `image` file fields and matching `uuid` and `filename` fields. Additional form fields are preserved as metadata, so EXIF or other image metadata can be sent alongside the upload. Server-side file paths in the request body are no longer supported.
+Indexing requests must upload photos in `multipart/form-data` using repeated `image` file fields and matching `uuid` and `filename` fields. The capture date contract is `photo_date`: clients send the photo capture date in a `photo_date` field, and the backend stores that value as canonical metadata `photo_date`. Do not send legacy date fields such as `date_time` or `photos_date`. If `submit_date_time=true`, that same `photo_date` value is also provided to the metadata prompt. Additional form fields are preserved as metadata, so EXIF or other image metadata can be sent alongside the upload. Server-side file paths in the request body are no longer supported.
 
 The embedding model cache path controls where the Hugging Face metadata text embedding model is stored and loaded from. It is passed to Hugging Face as `cache_dir`, so the model will be stored under that directory using Hugging Face's cache layout.
 Command-line wrapper launches preload the embedding model before the server accepts requests. Plugin launches keep lazy loading unless they pass `--preload-models`.
@@ -70,9 +70,9 @@ Indexing embeds generated photo metadata, not the image pixels. The default embe
 
 By default `/search` returns only `ai_model`, `ai_rundate`, `distance`, `filename`, `match_type`, `pertinence_score`, and `photo_date`. Add `return_metadata=true` to include the stored metadata payload for each hit.
 
-The `/index` pipeline stores the canonical search-facing fields automatically, including `filename`, `ai_model`, `ai_rundate`, and `photo_date` derived from `date_time` or EXIF capture time.
+The `/index` pipeline stores the canonical search-facing fields automatically, including `filename`, `ai_model`, `ai_rundate`, and `photo_date` from the request `photo_date` field.
 
-`/get` is a `POST` endpoint for fetching stored photos and their metadata/quality payloads. Send filters in the JSON body using direct fields or nested `filters`, `metadata`, and `quality` objects. Supported filters include `uuid`, `filename`, `ai_model`, `ai_rundate`, `photo_date` / `photos_date`, `provider`, and any other stored metadata key. If the body is empty, `/get` returns every photo. The response contains `count` plus a `photos` array with each record's `metadata` and `quality`.
+`/get` is a `POST` endpoint for fetching stored photos and their metadata/quality payloads. Send filters in the JSON body using direct fields or nested `filters`, `metadata`, and `quality` objects. Supported filters include `uuid`, `filename`, `ai_model`, `ai_rundate`, `photo_date`, `provider`, and any other stored metadata key. If the body is empty, `/get` returns every photo. The response contains `count` plus a `photos` array with each record's `metadata` and `quality`.
 
 ### Models selection
 - is done at the client side

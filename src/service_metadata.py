@@ -288,7 +288,7 @@ class AnalysisService:
             user_context=options.get('user_context'),
             keyword_categories=options.get('keyword_categories'),
             system_prompt=options.get('prompt'),
-            date_time=options.get('date_time'),
+            date_time=options.get('photo_date') if options.get('submit_date_time') else None,
         )
         
         try:
