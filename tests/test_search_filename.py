@@ -33,17 +33,45 @@ def _install_core_fakes(monkeypatch):
         "ids": [["photo-a", "photo-b"]],
         "distances": [[0.1, 0.2]],
         "metadatas": [[
-            {"filename": "alpha.jpg", "title": "alpha"},
-            {"filename": "beta.jpg", "title": "beta"},
+            {
+                "filename": "alpha.jpg",
+                "title": "alpha",
+                "exif": {"camera": "Nikon D850"},
+                "overall_score": 9.1,
+                "composition_score": 8.2,
+                "quality_critique": "Strong composition and exposure.",
+                "model": "gpt-4o",
+                "run_date": "2026-05-01 10:00:00",
+            },
+            {
+                "filename": "beta.jpg",
+                "title": "beta",
+            },
         ]],
         "embeddings": [[[1.0, 0.0], [1.0, 0.0]]],
     }
     fake_postgre_service.get_image_metadatas = lambda ids=None: {
         "ids": ["photo-a", "photo-b", "photo-c"],
         "metadatas": [
-            {"filename": "alpha.jpg", "title": "alpha"},
-            {"filename": "beta.jpg", "title": "beta"},
-            {"filename": "gamma.jpg", "title": "contains search term"},
+            {
+                "filename": "alpha.jpg",
+                "title": "alpha",
+                "exif": {"camera": "Nikon D850"},
+                "overall_score": 9.1,
+                "composition_score": 8.2,
+                "quality_critique": "Strong composition and exposure.",
+                "model": "gpt-4o",
+                "run_date": "2026-05-01 10:00:00",
+            },
+            {
+                "filename": "beta.jpg",
+                "title": "beta",
+            },
+            {
+                "filename": "gamma.jpg",
+                "title": "contains search term",
+                "exif": {"camera": "Leica M10"},
+            },
         ],
     }
     fake_postgre_service.group_and_sort_images = lambda *args, **kwargs: []
@@ -63,10 +91,18 @@ def test_search_images_includes_filename(monkeypatch):
     by_uuid = {item["uuid"]: item for item in results}
 
     assert by_uuid["photo-a"]["filename"] == "alpha.jpg"
+    assert by_uuid["photo-a"]["metadata"]["exif"]["camera"] == "Nikon D850"
+    assert by_uuid["photo-a"]["quality"]["overall_score"] == 9.1
+    assert by_uuid["photo-a"]["quality"]["composition_score"] == 8.2
+    assert by_uuid["photo-a"]["quality"]["quality_critique"] == "Strong composition and exposure."
+    assert by_uuid["photo-a"]["ai_model"] == "gpt-4o"
+    assert by_uuid["photo-a"]["ai_rundate"] == "2026-05-01 10:00:00"
     assert by_uuid["photo-b"]["filename"] == "beta.jpg"
     assert by_uuid["photo-c"]["filename"] == "gamma.jpg"
+    assert by_uuid["photo-c"]["metadata"]["exif"]["camera"] == "Leica M10"
     assert by_uuid["photo-a"]["match_type"] == "semantic"
     assert by_uuid["photo-c"]["match_type"] == "metadata"
+    assert by_uuid["photo-c"]["metadata_match"] is True
 
 
 def test_search_route_returns_filename(monkeypatch):
@@ -80,6 +116,18 @@ def test_search_route_returns_filename(monkeypatch):
             "distance": 0.1,
             "pertinence_score": 0.9,
             "match_type": "semantic",
+            "metadata": {
+                "filename": "alpha.jpg",
+                "title": "alpha",
+                "exif": {"camera": "Nikon D850"},
+            },
+            "quality": {
+                "overall_score": 9.1,
+                "composition_score": 8.2,
+                "quality_critique": "Strong composition and exposure.",
+            },
+            "ai_model": "gpt-4o",
+            "ai_rundate": "2026-05-01 10:00:00",
         }
     ]
     fake_service_search.group_similar_images = lambda *args, **kwargs: []
@@ -103,5 +151,17 @@ def test_search_route_returns_filename(monkeypatch):
             "distance": 0.1,
             "pertinence_score": 0.9,
             "match_type": "semantic",
+            "metadata": {
+                "filename": "alpha.jpg",
+                "title": "alpha",
+                "exif": {"camera": "Nikon D850"},
+            },
+            "quality": {
+                "overall_score": 9.1,
+                "composition_score": 8.2,
+                "quality_critique": "Strong composition and exposure.",
+            },
+            "ai_model": "gpt-4o",
+            "ai_rundate": "2026-05-01 10:00:00",
         }
     ]

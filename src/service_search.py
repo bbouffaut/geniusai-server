@@ -133,6 +133,36 @@ def _format_quality_scores(metadata):
     return ", ".join(score_parts) if score_parts else "quality=n/a"
 
 
+def _extract_quality_fields(metadata):
+    quality_fields = {}
+    for _, key in QUALITY_SCORE_FIELDS:
+        if key in metadata and metadata.get(key) is not None:
+            quality_fields[key] = metadata.get(key)
+    if metadata.get("quality_critique") is not None:
+        quality_fields["quality_critique"] = metadata.get("quality_critique")
+    return quality_fields
+
+
+def _build_search_result(uuid, metadata, distance, pertinence_score, match_type, metadata_match=False):
+    metadata = dict(metadata or {})
+    result = {
+        "uuid": uuid,
+        "filename": metadata.get("filename"),
+        "distance": float(round(distance, 4)) if distance is not None else None,
+        "pertinence_score": float(round(pertinence_score, 4)),
+        "match_type": match_type,
+        "metadata": metadata,
+        "quality": _extract_quality_fields(metadata),
+        "ai_model": metadata.get("model"),
+        "ai_rundate": metadata.get("run_date"),
+    }
+
+    if metadata_match:
+        result["metadata_match"] = True
+
+    return result
+
+
 def _log_retrieved_photos(term, final_results, metadata_by_id):
     if not final_results:
         logger.info(f"Search results for '{term}': no photos retrieved")
@@ -182,13 +212,15 @@ def _transform_and_sort_results(results, quality_sort, query_embedding, min_pert
         if pertinence_score < min_pertinence_score:
             continue
 
-        transformed_results.append({
-            "uuid": ids[i],
-            "filename": metadata.get("filename"),
-            "distance": float(round(distance, 4)) if distance is not None else None,
-            "pertinence_score": float(round(pertinence_score, 4)),
-            "match_type": "semantic",
-        })
+        transformed_results.append(
+            _build_search_result(
+                ids[i],
+                metadata,
+                distance,
+                pertinence_score,
+                "semantic",
+            )
+        )
 
     transformed_results.sort(
         key=lambda x: (
@@ -257,14 +289,14 @@ def search_images(term, quality_sort, uuids_to_search, min_pertinence_score=DEFA
 
     metadata_only_uuids = metadata_uuids - semantic_uuids
     metadata_only_results = [
-        {
-            "uuid": uuid,
-            "filename": metadata_by_id.get(uuid, {}).get("filename"),
-            "distance": None,
-            "pertinence_score": 1.0,
-            "match_type": "metadata",
-            "metadata_match": True,
-        }
+        _build_search_result(
+            uuid,
+            metadata_by_id.get(uuid, {}),
+            None,
+            1.0,
+            "metadata",
+            metadata_match=True,
+        )
         for uuid in metadata_only_uuids
     ]
 
