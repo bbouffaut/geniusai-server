@@ -184,6 +184,7 @@ def _transform_and_sort_results(results, quality_sort, query_embedding, min_pert
 
         transformed_results.append({
             "uuid": ids[i],
+            "filename": metadata.get("filename"),
             "distance": float(round(distance, 4)) if distance is not None else None,
             "pertinence_score": float(round(pertinence_score, 4)),
             "match_type": "semantic",
@@ -258,6 +259,7 @@ def search_images(term, quality_sort, uuids_to_search, min_pertinence_score=DEFA
     metadata_only_results = [
         {
             "uuid": uuid,
+            "filename": metadata_by_id.get(uuid, {}).get("filename"),
             "distance": None,
             "pertinence_score": 1.0,
             "match_type": "metadata",
