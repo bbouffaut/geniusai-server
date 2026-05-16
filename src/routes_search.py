@@ -74,6 +74,9 @@ def _project_search_result(result, return_metadata=False):
         "photo_date": result.get("photo_date") or (
             metadata.get("photo_date") if isinstance(metadata, dict) else None
         ),
+        "uuid": result.get("uuid") or (
+            metadata.get("uuid") if isinstance(metadata, dict) else None
+        ),
         **({"metadata": metadata} if return_metadata else {}),
     }
 

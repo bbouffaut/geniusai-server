@@ -68,7 +68,7 @@ Indexing embeds generated photo metadata, not the image pixels. The default embe
 
 `/search` accepts `min_pertinence_score` as a GET query parameter or POST JSON field. The value must be between `0` and `1`; higher values return fewer, more relevant semantic matches. The default is `0.35`. Exact metadata matches are accent-insensitive and are returned even if semantic scoring is unavailable.
 
-By default `/search` returns only `ai_model`, `ai_rundate`, `distance`, `filename`, `match_type`, `pertinence_score`, and `photo_date`. Add `return_metadata=true` to include the stored metadata payload for each hit.
+By default `/search` returns only `ai_model`, `ai_rundate`, `distance`, `filename`, `match_type`, `pertinence_score`, `photo_date`, and `uuid`. Add `return_metadata=true` to include the stored metadata payload for each hit.
 
 The `/index` pipeline stores the canonical search-facing fields automatically, including `filename`, `ai_model`, `ai_rundate`, and `photo_date` from the request `photo_date` field.
 
