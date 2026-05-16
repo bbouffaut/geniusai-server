@@ -48,6 +48,8 @@ INDEX_UPLOAD_RESERVED_FIELDS = {
     "regenerateMetadata",
     "prompt",
     "date_time",
+    "photo_date",
+    "photos_date",
     "tasks",
 }
 
@@ -153,6 +155,7 @@ def _extract_options(data):
     options['regenerate_metadata'] = str(reg_val).lower() == 'true'
     options['prompt'] = data.get('prompt')
     options['date_time'] = data.get('date_time')
+    options['photo_date'] = _first_non_blank_value(data.get('photo_date'), data.get('photos_date'))
 
     tasks_raw = data.get('tasks')
     if tasks_raw:

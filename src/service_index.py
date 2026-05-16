@@ -232,8 +232,11 @@ def _ensure_search_fields(main_metadata, options):
 
     photo_date = _first_non_blank(
         options.get("date_time") if options else None,
+        options.get("photo_date") if options else None,
+        options.get("photos_date") if options else None,
         main_metadata.get("capture_time"),
         main_metadata.get("photo_date"),
+        main_metadata.get("photos_date"),
     )
     if photo_date is not None:
         main_metadata["photo_date"] = photo_date

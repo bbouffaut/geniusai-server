@@ -110,6 +110,33 @@ def test_index_accepts_extra_metadata(monkeypatch):
     ]
 
 
+def test_index_accepts_photos_date_as_photo_date_alias(monkeypatch):
+    app, captured_calls = _install_index_fakes(monkeypatch)
+
+    with app.test_client() as client:
+        response = client.post(
+            "/index",
+            data={
+                "image": (io.BytesIO(b"fake-image"), "upload.jpg"),
+                "uuid": "photo-1",
+                "filename": "photo-1.jpg",
+                "photos_date": "2026-05-02 12:34:56",
+                "album": "Summer",
+            },
+            content_type="multipart/form-data",
+        )
+
+    assert response.status_code == 200
+    assert response.get_json()["success_count"] == 1
+    assert captured_calls[0]["options"]["date_time"] is None
+    assert captured_calls[0]["options"]["photo_date"] == "2026-05-02 12:34:56"
+    assert captured_calls[0]["additional_metadata_list"] == [
+        {
+            "album": "Summer",
+        }
+    ]
+
+
 def test_index_base64_accepts_extra_metadata(monkeypatch):
     app, captured_calls = _install_index_fakes(monkeypatch)
     encoded_image = base64.b64encode(b"fake-image").decode("ascii")
@@ -134,6 +161,33 @@ def test_index_base64_accepts_extra_metadata(monkeypatch):
     assert captured_calls[0]["additional_metadata_list"] == [
         {
             "exif": {"camera": "Nikon"},
+            "album": "Summer",
+        }
+    ]
+
+
+def test_index_base64_accepts_photos_date_as_photo_date_alias(monkeypatch):
+    app, captured_calls = _install_index_fakes(monkeypatch)
+    encoded_image = base64.b64encode(b"fake-image").decode("ascii")
+
+    with app.test_client() as client:
+        response = client.post(
+            "/index_base64",
+            json={
+                "image": encoded_image,
+                "uuid": "photo-1",
+                "filename": "photo-1.jpg",
+                "photos_date": "2026-05-02 12:34:56",
+                "album": "Summer",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.get_json()["success_count"] == 1
+    assert captured_calls[0]["options"]["date_time"] is None
+    assert captured_calls[0]["options"]["photo_date"] == "2026-05-02 12:34:56"
+    assert captured_calls[0]["additional_metadata_list"] == [
+        {
             "album": "Summer",
         }
     ]

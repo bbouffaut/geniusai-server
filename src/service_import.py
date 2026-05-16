@@ -5,6 +5,17 @@ import json
 from datetime import datetime as time
 from service_index import _flatten_keywords
 
+
+def _first_non_blank(*values):
+    for value in values:
+        if value is None:
+            continue
+        if isinstance(value, str) and not value.strip():
+            continue
+        return value
+    return None
+
+
 def import_metadata_task(metadata_items: list[dict]) -> tuple[int, int]:
     """
     Process a batch of metadata imports.
@@ -42,7 +53,15 @@ def import_metadata_task(metadata_items: list[dict]) -> tuple[int, int]:
                 metadata_to_update['caption'] = item['caption']
             if 'alt_text' in item and item['alt_text'] and item['alt_text'] != '':
                 metadata_to_update['alt_text'] = item['alt_text']
-            
+
+            photo_date = _first_non_blank(
+                item.get('photo_date'),
+                item.get('photos_date'),
+                item.get('capture_time'),
+            )
+            if photo_date is not None:
+                metadata_to_update['photo_date'] = photo_date
+
             if not metadata_to_update:
                 logger.warning(f"No metadata provided to update for UUID {uuid}. Skipping.")
                 failure_count += 1

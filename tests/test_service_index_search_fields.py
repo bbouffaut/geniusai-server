@@ -93,3 +93,72 @@ def test_process_image_task_stores_search_fields(monkeypatch):
     assert stored_metadata["ai_model"] == "gpt-4o"
     assert stored_metadata["ai_rundate"] == stored_metadata["run_date"]
     assert stored_metadata["photo_date"] == "2026-05-02 12:34:56"
+
+
+def test_process_image_task_stores_photos_date_alias(monkeypatch):
+    fake_config = types.ModuleType("config")
+    fake_config.TEXT_EMBEDDING_MODEL_ID = "text-model"
+    fake_config.logger = _make_logger()
+
+    captured_add_calls = []
+
+    fake_postgre_service = types.ModuleType("service_postgre")
+    fake_postgre_service.get_image = lambda uuid: None
+    fake_postgre_service.add_image = lambda uuid, embedding, metadata, document=None: captured_add_calls.append(
+        {
+            "uuid": uuid,
+            "embedding": embedding,
+            "metadata": metadata,
+            "document": document,
+        }
+    )
+    fake_postgre_service.update_image = lambda *args, **kwargs: None
+
+    fake_server_lifecycle = types.ModuleType("server_lifecycle")
+    fake_server_lifecycle.embed_document = lambda document: None
+
+    class FakeAnalysisService:
+        def analyze_batch(self, image_triplets, options, _image_model=None, _image_processor=None,
+                          uuids_needing_embeddings=None, uuids_needing_metadata=None, uuids_needing_quality=None):
+            metadata_result = types.SimpleNamespace(
+                success=True,
+                title="Sunset",
+                caption="Sunset over the sea",
+                alt_text=None,
+                keywords={"Keywords": ["sea", "sunset"]},
+            )
+            return (
+                None,
+                {},
+                [metadata_result],
+                None,
+            )
+
+    fake_service_metadata = types.ModuleType("service_metadata")
+    fake_service_metadata.get_analysis_service = lambda: FakeAnalysisService()
+
+    monkeypatch.setitem(sys.modules, "config", fake_config)
+    monkeypatch.setitem(sys.modules, "service_postgre", fake_postgre_service)
+    monkeypatch.setitem(sys.modules, "server_lifecycle", fake_server_lifecycle)
+    monkeypatch.setitem(sys.modules, "service_metadata", fake_service_metadata)
+
+    sys.modules.pop("service_index", None)
+    service_index = importlib.import_module("service_index")
+
+    success_count, failure_count = service_index.process_image_task(
+        [(b"fake-image", "photo-1", "alpha.jpg")],
+        options={
+            "provider": "ollama",
+            "model": "gpt-4o",
+            "photos_date": "2026-05-02 12:34:56",
+            "compute_embeddings": False,
+            "compute_metadata": True,
+            "compute_quality": False,
+            "regenerate_metadata": True,
+        },
+    )
+
+    assert success_count == 1
+    assert failure_count == 0
+    assert len(captured_add_calls) == 1
+    assert captured_add_calls[0]["metadata"]["photo_date"] == "2026-05-02 12:34:56"
