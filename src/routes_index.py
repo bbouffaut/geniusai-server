@@ -18,7 +18,7 @@ index_bp = Blueprint('index', __name__)
 # Store timestamps of the last 100 requests to calculate processing speed
 request_timestamps = deque(maxlen=100)
 
-INDEX_UPLOAD_REQUIRED_FIELDS = ("image", "uuid", "filename")
+INDEX_UPLOAD_REQUIRED_FIELDS = ("image", "uuid", "filename", "photo_date")
 INDEX_UNSUPPORTED_PHOTO_DATE_FIELDS = ("date_time", "photos_date")
 INDEX_UPLOAD_RESERVED_FIELDS = {
     "image",
@@ -49,7 +49,6 @@ INDEX_UPLOAD_RESERVED_FIELDS = {
     "regenerateMetadata",
     "prompt",
     "photo_date",
-    "submit_date_time",
     "tasks",
 }
 
@@ -154,7 +153,6 @@ def _extract_options(data):
     options['regenerate_metadata'] = str(reg_val).lower() == 'true'
     options['prompt'] = data.get('prompt')
     options['photo_date'] = data.get('photo_date')
-    options['submit_date_time'] = str(data.get('submit_date_time', 'false')).lower() == 'true'
 
     tasks_raw = data.get('tasks')
     if tasks_raw:
@@ -421,15 +419,21 @@ def _index_uploaded_images(request_log_message):
     images = _extract_uploaded_images(request.files)
     uuids = _extract_uploaded_uuids(request.form)
     filenames = _extract_uploaded_filenames(request.form)
+    photo_date = request.form.get('photo_date')
     options = _extract_options(request.form)
 
-    required_values = dict(zip(INDEX_UPLOAD_REQUIRED_FIELDS, (images, uuids, filenames)))
+    required_values = {
+        "image": images,
+        "uuid": uuids,
+        "filename": filenames,
+        "photo_date": photo_date,
+    }
     missing_fields = [field for field, values in required_values.items() if not values]
     if missing_fields:
         return jsonify({
             "error": (
                 f"Missing required fields: {', '.join(missing_fields)}. "
-                "Upload files as multipart/form-data with repeated 'image', 'uuid', and 'filename' fields."
+                "Upload files as multipart/form-data with repeated 'image', 'uuid', 'filename', and 'photo_date' fields."
             )
         }), 400
 
@@ -842,7 +846,7 @@ def index_images_batch_base64():
     uuid = data.get('uuid')
     filename = data.get('filename')
 
-    missing_fields = [field for field in ("image", "uuid", "filename") if not data.get(field)]
+    missing_fields = [field for field in INDEX_UPLOAD_REQUIRED_FIELDS if not data.get(field)]
     if missing_fields:
         logger.info(f"{image}, {uuid}, {filename}")
         return jsonify({"error": f"Missing required fields: {', '.join(missing_fields)}"}), 400

@@ -81,6 +81,25 @@ def test_index_requires_filename(monkeypatch):
     assert captured_calls == []
 
 
+def test_index_requires_photo_date(monkeypatch):
+    app, captured_calls = _install_index_fakes(monkeypatch)
+
+    with app.test_client() as client:
+        response = client.post(
+            "/index",
+            data={
+                "image": (io.BytesIO(b"fake-image"), "upload.jpg"),
+                "uuid": "photo-1",
+                "filename": "photo-1.jpg",
+            },
+            content_type="multipart/form-data",
+        )
+
+    assert response.status_code == 400
+    assert "photo_date" in response.get_json()["error"]
+    assert captured_calls == []
+
+
 def test_index_accepts_extra_metadata(monkeypatch):
     app, captured_calls = _install_index_fakes(monkeypatch)
 
@@ -228,4 +247,23 @@ def test_index_base64_rejects_legacy_photo_date_fields(monkeypatch):
 
     assert response.status_code == 400
     assert "Use 'photo_date'" in response.get_json()["error"]
+    assert captured_calls == []
+
+
+def test_index_base64_requires_photo_date(monkeypatch):
+    app, captured_calls = _install_index_fakes(monkeypatch)
+    encoded_image = base64.b64encode(b"fake-image").decode("ascii")
+
+    with app.test_client() as client:
+        response = client.post(
+            "/index_base64",
+            json={
+                "image": encoded_image,
+                "uuid": "photo-1",
+                "filename": "photo-1.jpg",
+            },
+        )
+
+    assert response.status_code == 400
+    assert "photo_date" in response.get_json()["error"]
     assert captured_calls == []

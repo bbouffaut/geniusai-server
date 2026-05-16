@@ -71,7 +71,6 @@ class MetadataGenerationRequest:
     gps_coordinates: Optional[Dict[str, float]]
     folder_names: Optional[str]
     user_context: Optional[str]
-    date_time: Optional[str]
     
     # Keyword hierarchy for structured output
     # Can be either a flat list of strings: ["People", "Activities"]
@@ -331,9 +330,6 @@ class LLMProviderBase(ABC):
             # Check if folder names contain alphabetic characters (not just numbers/special chars)
             if any(c.isalpha() for c in request.folder_names):
                 context_additions.append(f"This photo is located in the following folders: {request.folder_names}")
-        
-        if request.date_time and request.date_time != "":
-            context_additions.append(f"This photo was taken on: {request.date_time}")
         
         # Add keyword hierarchy information if provided
         if request.generate_keywords and request.keyword_categories:
