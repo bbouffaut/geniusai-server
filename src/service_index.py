@@ -221,6 +221,16 @@ def _first_non_blank(*values):
     return None
 
 
+def _photo_date_from_capture_time(capture_time):
+    if capture_time is None:
+        return None
+
+    try:
+        return time.fromtimestamp(float(capture_time)).strftime("%Y-%m-%d %H:%M:%S")
+    except (TypeError, ValueError, OSError, OverflowError):
+        return None
+
+
 def _ensure_search_fields(main_metadata, options):
     ai_model = _first_non_blank(main_metadata.get("model"), main_metadata.get("ai_model"))
     if ai_model is not None:
@@ -233,6 +243,7 @@ def _ensure_search_fields(main_metadata, options):
     photo_date = _first_non_blank(
         options.get("photo_date") if options else None,
         main_metadata.get("photo_date"),
+        _photo_date_from_capture_time(main_metadata.get("capture_time")),
     )
     if photo_date is not None:
         main_metadata["photo_date"] = photo_date

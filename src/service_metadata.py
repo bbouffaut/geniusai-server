@@ -23,6 +23,26 @@ from PIL import Image, ExifTags
 import io
 from datetime import datetime
 
+EXIF_DATETIME_TAGS = (36867, 36868, 306)  # DateTimeOriginal, DateTimeDigitized, DateTime
+
+
+def _parse_exif_datetime(value: Any) -> Optional[datetime]:
+    if value is None:
+        return None
+
+    text = str(value).strip()
+    if not text:
+        return None
+
+    for date_format in ("%Y:%m:%d %H:%M:%S", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return datetime.strptime(text, date_format)
+        except ValueError:
+            pass
+
+    return None
+
+
 class AnalysisService:
     """
     Central service for managing metadata generation and quality scoring across multiple LLM providers.
@@ -215,11 +235,12 @@ class AnalysisService:
             try:
                 image_for_exif = Image.open(io.BytesIO(data))
                 exif_data = image_for_exif.getexif()
-                if exif_data:                    
-                    date_time_original = exif_data.get(36867) # DateTimeOriginal
-                    if date_time_original:
-                        dt_object = datetime.strptime(date_time_original, '%Y:%m:%d %H:%M:%S')
-                        capture_time = float(dt_object.timestamp())
+                if exif_data:
+                    for tag in EXIF_DATETIME_TAGS:
+                        dt_object = _parse_exif_datetime(exif_data.get(tag))
+                        if dt_object:
+                            capture_time = float(dt_object.timestamp())
+                            break
             except Exception as e:
                 logger.warning(f"Could not read EXIF data for {uuid}: {e}")
             
