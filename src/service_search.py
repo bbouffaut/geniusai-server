@@ -123,6 +123,13 @@ def _display_score(value, digits=4):
         return "-"
 
 
+def _first_non_none(*values):
+    for value in values:
+        if value is not None:
+            return value
+    return None
+
+
 def _format_quality_scores(metadata):
     score_parts = []
     for label, key in QUALITY_SCORE_FIELDS:
@@ -155,6 +162,7 @@ def _build_search_result(uuid, metadata, distance, pertinence_score, match_type,
         "quality": _extract_quality_fields(metadata),
         "ai_model": metadata.get("model"),
         "ai_rundate": metadata.get("run_date"),
+        "photo_date": _first_non_none(metadata.get("capture_time"), metadata.get("photo_date")),
     }
 
     if metadata_match:

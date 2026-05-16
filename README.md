@@ -66,7 +66,9 @@ Database selection is configuration-driven:
 
 Indexing embeds generated photo metadata, not the image pixels. The default embedding model is `Qwen/Qwen3-Embedding-0.6B`; search terms use the model's instruction-style query format, while indexed metadata documents are embedded as plain text.
 
-`/search` accepts `min_pertinence_score` as a GET query parameter or POST JSON field. The value must be between `0` and `1`; higher values return fewer, more relevant semantic matches. The default is `0.35`. Exact metadata matches are accent-insensitive and are returned even if semantic scoring is unavailable. Each search hit now includes the full stored photo metadata under `metadata`, plus the extracted `quality`, `ai_model`, and `ai_rundate` fields.
+`/search` accepts `min_pertinence_score` as a GET query parameter or POST JSON field. The value must be between `0` and `1`; higher values return fewer, more relevant semantic matches. The default is `0.35`. Exact metadata matches are accent-insensitive and are returned even if semantic scoring is unavailable.
+
+By default `/search` returns only `ai_model`, `ai_rundate`, `distance`, `filename`, `match_type`, and `photo_date`. Add `return_metadata=true` to include the stored metadata payload for each hit.
 
 ### Models selection
 - is done at the client side

@@ -42,6 +42,7 @@ def _install_core_fakes(monkeypatch):
                 "quality_critique": "Strong composition and exposure.",
                 "model": "gpt-4o",
                 "run_date": "2026-05-01 10:00:00",
+                "capture_time": "2026-04-30 09:30:00",
             },
             {
                 "filename": "beta.jpg",
@@ -62,6 +63,7 @@ def _install_core_fakes(monkeypatch):
                 "quality_critique": "Strong composition and exposure.",
                 "model": "gpt-4o",
                 "run_date": "2026-05-01 10:00:00",
+                "capture_time": "2026-04-30 09:30:00",
             },
             {
                 "filename": "beta.jpg",
@@ -71,6 +73,7 @@ def _install_core_fakes(monkeypatch):
                 "filename": "gamma.jpg",
                 "title": "contains search term",
                 "exif": {"camera": "Leica M10"},
+                "capture_time": "2026-04-29 08:15:00",
             },
         ],
     }
@@ -81,7 +84,7 @@ def _install_core_fakes(monkeypatch):
     monkeypatch.setitem(sys.modules, "service_postgre", fake_postgre_service)
 
 
-def test_search_images_includes_filename(monkeypatch):
+def test_search_images_exposes_internal_metadata(monkeypatch):
     _install_core_fakes(monkeypatch)
     sys.modules.pop("service_search", None)
 
@@ -97,15 +100,17 @@ def test_search_images_includes_filename(monkeypatch):
     assert by_uuid["photo-a"]["quality"]["quality_critique"] == "Strong composition and exposure."
     assert by_uuid["photo-a"]["ai_model"] == "gpt-4o"
     assert by_uuid["photo-a"]["ai_rundate"] == "2026-05-01 10:00:00"
+    assert by_uuid["photo-a"]["photo_date"] == "2026-04-30 09:30:00"
     assert by_uuid["photo-b"]["filename"] == "beta.jpg"
     assert by_uuid["photo-c"]["filename"] == "gamma.jpg"
+    assert by_uuid["photo-c"]["photo_date"] == "2026-04-29 08:15:00"
     assert by_uuid["photo-c"]["metadata"]["exif"]["camera"] == "Leica M10"
     assert by_uuid["photo-a"]["match_type"] == "semantic"
     assert by_uuid["photo-c"]["match_type"] == "metadata"
     assert by_uuid["photo-c"]["metadata_match"] is True
 
 
-def test_search_route_returns_filename(monkeypatch):
+def test_search_route_returns_minimum_fields_by_default(monkeypatch):
     _install_core_fakes(monkeypatch)
 
     fake_service_search = types.ModuleType("service_search")
@@ -116,18 +121,24 @@ def test_search_route_returns_filename(monkeypatch):
             "distance": 0.1,
             "pertinence_score": 0.9,
             "match_type": "semantic",
+            "photo_date": "2026-04-30 09:30:00",
+            "ai_model": "gpt-4o",
+            "ai_rundate": "2026-05-01 10:00:00",
             "metadata": {
+                "uuid": "photo-a",
                 "filename": "alpha.jpg",
                 "title": "alpha",
                 "exif": {"camera": "Nikon D850"},
+                "capture_time": "2026-04-30 09:30:00",
+                "run_date": "2026-05-01 10:00:00",
+                "model": "gpt-4o",
             },
             "quality": {
                 "overall_score": 9.1,
                 "composition_score": 8.2,
                 "quality_critique": "Strong composition and exposure.",
             },
-            "ai_model": "gpt-4o",
-            "ai_rundate": "2026-05-01 10:00:00",
+            "metadata_match": True,
         }
     ]
     fake_service_search.group_similar_images = lambda *args, **kwargs: []
@@ -146,22 +157,77 @@ def test_search_route_returns_filename(monkeypatch):
     assert response.status_code == 200
     assert response.get_json() == [
         {
+            "ai_model": "gpt-4o",
+            "ai_rundate": "2026-05-01 10:00:00",
+            "distance": 0.1,
+            "filename": "alpha.jpg",
+            "match_type": "semantic",
+            "photo_date": "2026-04-30 09:30:00",
+        }
+    ]
+
+
+def test_search_route_includes_metadata_when_requested(monkeypatch):
+    _install_core_fakes(monkeypatch)
+
+    fake_service_search = types.ModuleType("service_search")
+    fake_service_search.search_images = lambda term, quality_sort, uuids_to_search, min_pertinence_score: [
+        {
             "uuid": "photo-a",
             "filename": "alpha.jpg",
             "distance": 0.1,
             "pertinence_score": 0.9,
             "match_type": "semantic",
+            "photo_date": "2026-04-30 09:30:00",
+            "ai_model": "gpt-4o",
+            "ai_rundate": "2026-05-01 10:00:00",
             "metadata": {
+                "uuid": "photo-a",
                 "filename": "alpha.jpg",
                 "title": "alpha",
                 "exif": {"camera": "Nikon D850"},
+                "capture_time": "2026-04-30 09:30:00",
+                "run_date": "2026-05-01 10:00:00",
+                "model": "gpt-4o",
             },
             "quality": {
                 "overall_score": 9.1,
                 "composition_score": 8.2,
                 "quality_critique": "Strong composition and exposure.",
             },
+            "metadata_match": True,
+        }
+    ]
+    fake_service_search.group_similar_images = lambda *args, **kwargs: []
+
+    monkeypatch.setitem(sys.modules, "service_search", fake_service_search)
+    sys.modules.pop("routes_search", None)
+
+    routes_search = importlib.import_module("routes_search")
+
+    app = Flask(__name__)
+    app.register_blueprint(routes_search.search_bp)
+
+    with app.test_client() as client:
+        response = client.get("/search?term=alpha&return_metadata=true")
+
+    assert response.status_code == 200
+    assert response.get_json() == [
+        {
             "ai_model": "gpt-4o",
             "ai_rundate": "2026-05-01 10:00:00",
+            "distance": 0.1,
+            "filename": "alpha.jpg",
+            "match_type": "semantic",
+            "metadata": {
+                "uuid": "photo-a",
+                "filename": "alpha.jpg",
+                "title": "alpha",
+                "exif": {"camera": "Nikon D850"},
+                "capture_time": "2026-04-30 09:30:00",
+                "run_date": "2026-05-01 10:00:00",
+                "model": "gpt-4o",
+            },
+            "photo_date": "2026-04-30 09:30:00",
         }
     ]

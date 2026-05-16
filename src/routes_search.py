@@ -37,6 +37,55 @@ def _parse_min_pertinence_score(data):
     return score, None
 
 
+def _parse_return_metadata(data):
+    raw_value = _request_value(data, 'return_metadata', 'returnMetadata')
+    if raw_value is None:
+        return False
+
+    if isinstance(raw_value, bool):
+        return raw_value
+
+    if isinstance(raw_value, (int, float)):
+        return raw_value != 0
+
+    text = str(raw_value).strip().lower()
+    if text == "":
+        return True
+    if text in {"1", "true", "yes", "on"}:
+        return True
+    if text in {"0", "false", "no", "off"}:
+        return False
+
+    return True
+
+
+def _first_non_none(*values):
+    for value in values:
+        if value is not None:
+            return value
+    return None
+
+
+def _project_search_result(result, return_metadata=False):
+    metadata = result.get('metadata')
+    if metadata is None:
+        metadata = {}
+
+    return {
+        "ai_model": result.get("ai_model"),
+        "ai_rundate": result.get("ai_rundate"),
+        "distance": result.get("distance"),
+        "filename": result.get("filename"),
+        "match_type": result.get("match_type"),
+        "photo_date": _first_non_none(
+            result.get("photo_date"),
+            metadata.get("capture_time") if isinstance(metadata, dict) else None,
+            metadata.get("photo_date") if isinstance(metadata, dict) else None,
+        ),
+        **({"metadata": metadata} if return_metadata else {}),
+    }
+
+
 @search_bp.route('/search', methods=['GET', 'POST'])
 def search_route():
     logger.info("Search request received")
@@ -51,6 +100,7 @@ def search_route():
         if error:
             return jsonify({"error": error}), 400
 
+        return_metadata = _parse_return_metadata(data)
         quality_sort = request.args.get('quality_sort', None) or data.get('quality_sort')
 
         uuids_to_search = None
@@ -58,7 +108,8 @@ def search_route():
             uuids_to_search = data.get('uuids')
 
         sorted_results = service_search.search_images(term, quality_sort, uuids_to_search, min_pertinence_score)
-        return jsonify(sorted_results)
+        projected_results = [_project_search_result(result, return_metadata) for result in sorted_results]
+        return jsonify(projected_results)
     except Exception as e:
         logger.error(f"Error during search: {e}", exc_info=True)
         return jsonify({"error": "An internal error occurred"}), 500
