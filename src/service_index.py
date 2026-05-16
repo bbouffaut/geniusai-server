@@ -129,6 +129,29 @@ def _store_generation_model_keyword(metadata):
     metadata["flattened_keywords"] = _flatten_keywords(keywords_with_model)
 
 
+_RESERVED_METADATA_KEYS = {
+    "uuid",
+    "filename",
+    "provider",
+    "model",
+    "run_date",
+    "has_embedding",
+    "embedding_model",
+    "embedding_source",
+    "metadata_search_text",
+}
+
+
+def _merge_additional_metadata(base_metadata, additional_metadata):
+    if not additional_metadata:
+        return
+
+    for key, value in additional_metadata.items():
+        if key in _RESERVED_METADATA_KEYS:
+            continue
+        base_metadata[key] = value
+
+
 _NON_SEARCHABLE_METADATA_KEYS = {
     "uuid",
     "provider",
@@ -186,8 +209,9 @@ def _build_metadata_embedding_document(metadata):
     return "\n".join(parts)
 
 def process_image_task(
-    image_triplets: list[tuple[bytes, str, str]], 
-    options: dict
+    image_triplets: list[tuple[bytes, str, str]],
+    options: dict,
+    additional_metadata_list=None,
 ) -> tuple[int, int]:
     """
     Process a batch of images for indexing.
@@ -202,6 +226,12 @@ def process_image_task(
     success_count = 0
     failure_count = 0
     total_images = len(image_triplets)
+
+    if additional_metadata_list is not None and len(additional_metadata_list) != total_images:
+        logger.warning(
+            "Ignoring additional metadata because its batch size does not match the image batch size."
+        )
+        additional_metadata_list = None
 
     try:
         provider = options.get('provider')
@@ -281,6 +311,11 @@ def process_image_task(
                 embedding = None
                 rating_data = ratings[i] if ratings else None
                 metadata_data = metadata_results[i] if metadata_results else None
+                extra_metadata = (
+                    additional_metadata_list[i]
+                    if additional_metadata_list is not None
+                    else None
+                )
                 
                 existing = existing_records.get(uuid, {})
                 
@@ -308,16 +343,17 @@ def process_image_task(
                 # Start with existing metadata if not regenerating
                 if not regenerate_metadata and existing:
                     main_metadata = existing.copy()
-                    # Update only basic fields that should always be current
-                    main_metadata["filename"] = filename
-                    main_metadata["uuid"] = uuid
                 else:
                     main_metadata = {
-                        "filename": filename,
-                        "uuid": uuid,
                         "provider": provider,
                         "model": model_name,
                     }
+
+                _merge_additional_metadata(main_metadata, extra_metadata)
+
+                # Update only basic fields that should always be current
+                main_metadata["filename"] = filename
+                main_metadata["uuid"] = uuid
 
                 # Update/add datetime if present
                 if datetimes:

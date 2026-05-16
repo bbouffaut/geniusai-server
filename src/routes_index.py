@@ -17,6 +17,39 @@ index_bp = Blueprint('index', __name__)
 # Store timestamps of the last 100 requests to calculate processing speed
 request_timestamps = deque(maxlen=100)
 
+INDEX_UPLOAD_REQUIRED_FIELDS = ("image", "uuid", "filename")
+INDEX_UPLOAD_RESERVED_FIELDS = {
+    "image",
+    "images",
+    "uuid",
+    "uuids",
+    "filename",
+    "filenames",
+    "provider",
+    "model",
+    "api_key",
+    "language",
+    "max_tokens",
+    "generate_keywords",
+    "generate_caption",
+    "generate_title",
+    "generate_alt_text",
+    "submit_gps",
+    "submit_keywords",
+    "submit_folder_names",
+    "existing_keywords",
+    "gps_coordinates",
+    "folder_names",
+    "user_context",
+    "keyword_categories",
+    "replace_ss",
+    "regenerate_metadata",
+    "regenerateMetadata",
+    "prompt",
+    "date_time",
+    "tasks",
+}
+
 def _extract_options(data):
     """Extracts options from request data (form or json)."""
     options = {}
@@ -99,11 +132,11 @@ def _extract_uploaded_images(files):
 def _extract_uploaded_uuids(form):
     uuids = form.getlist('uuid')
     if uuids:
-        return uuids
+        return [uuid.strip() for uuid in uuids if str(uuid).strip()]
 
     uuids = form.getlist('uuids')
     if len(uuids) > 1:
-        return [uuid for uuid in uuids if uuid]
+        return [uuid.strip() for uuid in uuids if str(uuid).strip()]
 
     raw_uuids = form.get('uuids')
     if not raw_uuids:
@@ -121,6 +154,110 @@ def _extract_uploaded_uuids(form):
         return [str(uuid).strip() for uuid in parsed_uuids if str(uuid).strip()]
 
     return []
+
+
+def _extract_uploaded_filenames(form):
+    filenames = form.getlist('filename')
+    if filenames:
+        return [filename.strip() for filename in filenames if str(filename).strip()]
+
+    filenames = form.getlist('filenames')
+    if len(filenames) > 1:
+        return [filename.strip() for filename in filenames if str(filename).strip()]
+
+    raw_filenames = form.get('filenames')
+    if not raw_filenames:
+        return []
+
+    if isinstance(raw_filenames, str):
+        try:
+            parsed_filenames = json.loads(raw_filenames)
+        except json.JSONDecodeError:
+            parsed_filenames = [filename.strip() for filename in raw_filenames.split(',')]
+    else:
+        parsed_filenames = raw_filenames
+
+    if isinstance(parsed_filenames, list):
+        return [str(filename).strip() for filename in parsed_filenames if str(filename).strip()]
+
+    return []
+
+
+def _normalize_metadata_value(value):
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped and stripped[0] in "[{":
+            try:
+                return json.loads(stripped)
+            except json.JSONDecodeError:
+                return value
+        return value
+
+    if isinstance(value, list):
+        return [_normalize_metadata_value(item) for item in value]
+
+    if isinstance(value, dict):
+        return {
+            key: _normalize_metadata_value(item)
+            for key, item in value.items()
+        }
+
+    return value
+
+
+def _extract_uploaded_metadata(form, batch_size):
+    if batch_size <= 0:
+        return []
+
+    metadata_by_index = [dict() for _ in range(batch_size)]
+
+    for key in form.keys():
+        if key in INDEX_UPLOAD_RESERVED_FIELDS:
+            continue
+
+        values = form.getlist(key)
+        if not values:
+            continue
+
+        normalized_values = [_normalize_metadata_value(value) for value in values]
+
+        if len(normalized_values) == batch_size:
+            for index, value in enumerate(normalized_values):
+                metadata_by_index[index][key] = value
+            continue
+
+        if len(normalized_values) == 1:
+            for metadata in metadata_by_index:
+                metadata[key] = normalized_values[0]
+            continue
+
+        for metadata in metadata_by_index:
+            metadata[key] = normalized_values
+
+    return metadata_by_index
+
+
+def _extract_json_metadata(data):
+    metadata = {}
+    for key, value in data.items():
+        if key in INDEX_UPLOAD_RESERVED_FIELDS:
+            continue
+        metadata[key] = _normalize_metadata_value(value)
+
+    return metadata
+
+
+def _process_image_task_with_metadata(image_triplets, options, additional_metadata_list=None):
+    try:
+        return process_image_task(
+            image_triplets,
+            options=options,
+            additional_metadata_list=additional_metadata_list,
+        )
+    except TypeError as exc:
+        if "unexpected keyword argument 'additional_metadata_list'" not in str(exc):
+            raise
+        return process_image_task(image_triplets, options)
 
 
 def _record_batch_timing(batch_size):
@@ -176,12 +313,13 @@ def _ensure_uploaded_file_path(file_storage):
         return staged_file.name, True
 
 
-def _build_uploaded_image_triplets(images, uuids):
+def _build_uploaded_image_triplets(images, uuids, filenames):
     image_triplets = []
     upload_failures = 0
 
     for index, file_storage in enumerate(images):
         uuid = uuids[index]
+        filename = filenames[index]
         if not file_storage or not uuid:
             logger.warning("Skipping an entry in the batch due to missing file or uuid.")
             upload_failures += 1
@@ -194,7 +332,7 @@ def _build_uploaded_image_triplets(images, uuids):
             with open(staged_path, 'rb') as staged_file:
                 image_data = staged_file.read()
 
-            filename = file_storage.filename or os.path.basename(staged_path)
+            filename = filename or file_storage.filename or os.path.basename(staged_path)
             logger.debug(f"Prepared uploaded image for UUID {uuid} from temp file {staged_path}")
             image_triplets.append((image_data, uuid, filename))
         except Exception as e:
@@ -215,20 +353,32 @@ def _index_uploaded_images(request_log_message):
 
     images = _extract_uploaded_images(request.files)
     uuids = _extract_uploaded_uuids(request.form)
+    filenames = _extract_uploaded_filenames(request.form)
     options = _extract_options(request.form)
 
-    if not images or not uuids or len(images) != len(uuids):
+    required_values = dict(zip(INDEX_UPLOAD_REQUIRED_FIELDS, (images, uuids, filenames)))
+    missing_fields = [field for field, values in required_values.items() if not values]
+    if missing_fields:
         return jsonify({
             "error": (
-                "Mismatch between number of images and UUIDs, or no images provided. "
-                "Upload files as multipart/form-data with repeated 'image' and 'uuid' fields."
+                f"Missing required fields: {', '.join(missing_fields)}. "
+                "Upload files as multipart/form-data with repeated 'image', 'uuid', and 'filename' fields."
+            )
+        }), 400
+
+    if len(images) != len(uuids) or len(images) != len(filenames):
+        return jsonify({
+            "error": (
+                "Mismatch between the number of images, UUIDs, and filenames. "
+                "Upload files as multipart/form-data with matching repeated 'image', 'uuid', and 'filename' fields."
             )
         }), 400
 
     batch_size = len(images)
     _record_batch_timing(batch_size)
+    additional_metadata = _extract_uploaded_metadata(request.form, batch_size)
 
-    image_triplets, upload_failures = _build_uploaded_image_triplets(images, uuids)
+    image_triplets, upload_failures = _build_uploaded_image_triplets(images, uuids, filenames)
 
     if not image_triplets:
         logger.info("No valid uploaded images to process in the batch.")
@@ -238,9 +388,10 @@ def _index_uploaded_images(request_log_message):
             "failure_count": upload_failures or batch_size,
         }), 200
 
-    success_count, processing_failures = process_image_task(
+    success_count, processing_failures = _process_image_task_with_metadata(
         image_triplets,
-        options=options
+        options=options,
+        additional_metadata_list=additional_metadata,
     )
     total_failures = upload_failures + processing_failures
 
@@ -281,15 +432,18 @@ def index_images_batch_base64():
     uuid = data.get('uuid')
     filename = data.get('filename')
 
-    if not image or not uuid or not filename:
+    missing_fields = [field for field in ("image", "uuid", "filename") if not data.get(field)]
+    if missing_fields:
         logger.info(f"{image}, {uuid}, {filename}")
-        return jsonify({"error": "Missing required fields: image, uuid, filename"}), 400
+        return jsonify({"error": f"Missing required fields: {', '.join(missing_fields)}"}), 400
 
     options = _extract_options(data)
+    additional_metadata = [_extract_json_metadata(data)]
 
-    success_count, failure_count = process_image_task(
+    success_count, failure_count = _process_image_task_with_metadata(
         [(base64.b64decode(image.encode('ascii')), uuid, filename)],
-        options=options
+        options=options,
+        additional_metadata_list=additional_metadata,
     )
     
     logger.info(f"Batch processing complete. Success: {success_count}, Failures: {failure_count}.")
@@ -312,7 +466,7 @@ def index_images_batch_by_reference():
         return jsonify({
             "error": (
                 "Path-based indexing is no longer supported. "
-                "Upload files as multipart/form-data with repeated 'image' and 'uuid' fields."
+                "Upload files as multipart/form-data with repeated 'image', 'uuid', and 'filename' fields."
             )
         }), 400
 

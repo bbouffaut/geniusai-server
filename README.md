@@ -46,7 +46,7 @@ Runtime arguments such as host, port, preload/debug flags, and model cache path 
 
 `GENIUSAI_UPLOAD_TEMP_DIR` controls where multipart uploads received by `/index` and `/index_by_reference` are temporarily staged while Flask parses the request. If unset, it defaults to `<GENIUSAI_DATA_DIR>/uploads-temp`.
 
-Indexing requests must upload photos in `multipart/form-data` using repeated `image` file fields and matching `uuid` fields. Server-side file paths in the request body are no longer supported.
+Indexing requests must upload photos in `multipart/form-data` using repeated `image` file fields and matching `uuid` and `filename` fields. Additional form fields are preserved as metadata, so EXIF or other image metadata can be sent alongside the upload. Server-side file paths in the request body are no longer supported.
 
 The embedding model cache path controls where the Hugging Face metadata text embedding model is stored and loaded from. It is passed to Hugging Face as `cache_dir`, so the model will be stored under that directory using Hugging Face's cache layout.
 Command-line wrapper launches preload the embedding model before the server accepts requests. Plugin launches keep lazy loading unless they pass `--preload-models`.
