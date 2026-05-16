@@ -6,7 +6,6 @@ import types
 from pathlib import Path
 
 from flask import Flask
-from PIL import Image
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -22,17 +21,6 @@ def _make_logger():
         error=lambda *args, **kwargs: None,
         debug=lambda *args, **kwargs: None,
     )
-
-
-def _jpeg_with_exif_photo_date(photo_date="2026:05:02 12:34:56"):
-    image = Image.new("RGB", (1, 1), color=(255, 255, 255))
-    exif = Image.Exif()
-    exif[36867] = photo_date
-
-    buffer = io.BytesIO()
-    image.save(buffer, format="JPEG", exif=exif)
-    buffer.seek(0)
-    return buffer
 
 
 def _install_index_fakes(monkeypatch):
@@ -110,25 +98,6 @@ def test_index_requires_photo_date(monkeypatch):
     assert response.status_code == 400
     assert "photo_date" in response.get_json()["error"]
     assert captured_calls == []
-
-
-def test_index_extracts_photo_date_from_uploaded_exif(monkeypatch):
-    app, captured_calls = _install_index_fakes(monkeypatch)
-
-    with app.test_client() as client:
-        response = client.post(
-            "/index",
-            data={
-                "image": (_jpeg_with_exif_photo_date(), "upload.jpg"),
-                "uuid": "photo-1",
-                "filename": "photo-1.jpg",
-            },
-            content_type="multipart/form-data",
-        )
-
-    assert response.status_code == 200
-    assert response.get_json()["success_count"] == 1
-    assert captured_calls[0]["options"]["photo_date"] == "2026-05-02 12:34:56"
 
 
 def test_index_accepts_extra_metadata(monkeypatch):
@@ -279,25 +248,6 @@ def test_index_base64_rejects_legacy_photo_date_fields(monkeypatch):
     assert response.status_code == 400
     assert "Use 'photo_date'" in response.get_json()["error"]
     assert captured_calls == []
-
-
-def test_index_base64_extracts_photo_date_from_exif(monkeypatch):
-    app, captured_calls = _install_index_fakes(monkeypatch)
-    encoded_image = base64.b64encode(_jpeg_with_exif_photo_date().getvalue()).decode("ascii")
-
-    with app.test_client() as client:
-        response = client.post(
-            "/index_base64",
-            json={
-                "image": encoded_image,
-                "uuid": "photo-1",
-                "filename": "photo-1.jpg",
-            },
-        )
-
-    assert response.status_code == 200
-    assert response.get_json()["success_count"] == 1
-    assert captured_calls[0]["options"]["photo_date"] == "2026-05-02 12:34:56"
 
 
 def test_index_base64_requires_photo_date(monkeypatch):

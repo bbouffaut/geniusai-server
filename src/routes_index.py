@@ -2,7 +2,6 @@ from flask import Blueprint, request, jsonify
 from datetime import datetime
 import time
 from collections import deque
-import io
 import os
 import shutil
 import tempfile
@@ -13,16 +12,14 @@ from config import DEFAULT_METADATA_LANGUAGE, UPLOAD_TEMP_DIR, logger
 from service_index import keywords_with_generation_model, process_image_task
 import base64
 import json
-from PIL import Image
 
 index_bp = Blueprint('index', __name__)
 
 # Store timestamps of the last 100 requests to calculate processing speed
 request_timestamps = deque(maxlen=100)
 
-INDEX_UPLOAD_REQUIRED_FIELDS = ("image", "uuid", "filename")
+INDEX_UPLOAD_REQUIRED_FIELDS = ("image", "uuid", "filename", "photo_date")
 INDEX_UNSUPPORTED_PHOTO_DATE_FIELDS = ("date_time", "photos_date")
-EXIF_PHOTO_DATE_TAGS = (36867, 36868, 306)  # DateTimeOriginal, DateTimeDigitized, DateTime
 INDEX_UPLOAD_RESERVED_FIELDS = {
     "image",
     "images",
@@ -185,49 +182,6 @@ def _normalize_photo_date_value(value):
         return None
 
     return text
-
-
-def _format_exif_photo_date(value):
-    text = _normalize_photo_date_value(value)
-    if not text:
-        return None
-
-    for date_format in ("%Y:%m:%d %H:%M:%S", "%Y-%m-%d %H:%M:%S"):
-        try:
-            return datetime.strptime(text, date_format).strftime("%Y-%m-%d %H:%M:%S")
-        except ValueError:
-            pass
-
-    return text
-
-
-def _photo_date_from_image_bytes(image_bytes):
-    if not image_bytes:
-        return None
-
-    try:
-        with Image.open(io.BytesIO(image_bytes)) as image:
-            exif_data = image.getexif()
-            if not exif_data:
-                return None
-
-            for tag in EXIF_PHOTO_DATE_TAGS:
-                photo_date = _format_exif_photo_date(exif_data.get(tag))
-                if photo_date:
-                    return photo_date
-    except Exception as exc:
-        logger.warning(f"Could not extract photo_date from uploaded image EXIF: {exc}")
-
-    return None
-
-
-def _photo_date_from_image_triplets(image_triplets):
-    for image_bytes, _uuid, _filename in image_triplets:
-        photo_date = _photo_date_from_image_bytes(image_bytes)
-        if photo_date:
-            return photo_date
-
-    return None
 
 
 def _unsupported_photo_date_fields(data):
@@ -483,13 +437,14 @@ def _index_uploaded_images(request_log_message):
         "image": images,
         "uuid": uuids,
         "filename": filenames,
+        "photo_date": options.get('photo_date'),
     }
     missing_fields = [field for field, values in required_values.items() if not values]
     if missing_fields:
         return jsonify({
             "error": (
                 f"Missing required fields: {', '.join(missing_fields)}. "
-                "Upload files as multipart/form-data with repeated 'image', 'uuid', and 'filename' fields."
+                "Upload files as multipart/form-data with repeated 'image', 'uuid', 'filename', and 'photo_date' fields."
             )
         }), 400
 
@@ -514,17 +469,6 @@ def _index_uploaded_images(request_log_message):
             "success_count": 0,
             "failure_count": upload_failures or batch_size,
         }), 200
-
-    if not options.get('photo_date'):
-        options['photo_date'] = _photo_date_from_image_triplets(image_triplets)
-
-    if not options.get('photo_date'):
-        return jsonify({
-            "error": (
-                "Missing required field: photo_date. "
-                "Send photo_date or upload an image with EXIF creation date."
-            )
-        }), 400
 
     success_count, processing_failures = _process_image_task_with_metadata(
         image_triplets,
@@ -921,16 +865,6 @@ def index_images_batch_base64():
     options = _extract_options(data)
     options['photo_date'] = _normalize_photo_date_value(options.get('photo_date'))
     image_bytes = base64.b64decode(image.encode('ascii'))
-    if not options.get('photo_date'):
-        options['photo_date'] = _photo_date_from_image_bytes(image_bytes)
-
-    if not options.get('photo_date'):
-        return jsonify({
-            "error": (
-                "Missing required field: photo_date. "
-                "Send photo_date or upload an image with EXIF creation date."
-            )
-        }), 400
 
     additional_metadata = [_extract_json_metadata(data)]
 
