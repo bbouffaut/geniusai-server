@@ -77,6 +77,7 @@ def _project_search_result(result, return_metadata=False):
         "distance": result.get("distance"),
         "filename": result.get("filename"),
         "match_type": result.get("match_type"),
+        "pertinence_score": result.get("pertinence_score"),
         "photo_date": _first_non_none(
             result.get("photo_date"),
             metadata.get("capture_time") if isinstance(metadata, dict) else None,

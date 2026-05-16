@@ -162,6 +162,7 @@ def test_search_route_returns_minimum_fields_by_default(monkeypatch):
             "distance": 0.1,
             "filename": "alpha.jpg",
             "match_type": "semantic",
+            "pertinence_score": 0.9,
             "photo_date": "2026-04-30 09:30:00",
         }
     ]
@@ -219,6 +220,7 @@ def test_search_route_includes_metadata_when_requested(monkeypatch):
             "distance": 0.1,
             "filename": "alpha.jpg",
             "match_type": "semantic",
+            "pertinence_score": 0.9,
             "metadata": {
                 "uuid": "photo-a",
                 "filename": "alpha.jpg",
