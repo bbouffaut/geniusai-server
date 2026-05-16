@@ -70,6 +70,8 @@ Indexing embeds generated photo metadata, not the image pixels. The default embe
 
 By default `/search` returns only `ai_model`, `ai_rundate`, `distance`, `filename`, `match_type`, and `photo_date`. Add `return_metadata=true` to include the stored metadata payload for each hit.
 
+The `/index` pipeline stores the canonical search-facing fields automatically, including `filename`, `ai_model`, `ai_rundate`, and `photo_date` derived from `date_time` or EXIF capture time.
+
 ### Models selection
 - is done at the client side
 - Default is ollama -> Needs to have a ollama listening locally on 11434 port

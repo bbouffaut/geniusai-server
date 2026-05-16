@@ -91,6 +91,7 @@ def test_index_accepts_extra_metadata(monkeypatch):
                 "image": (io.BytesIO(b"fake-image"), "upload.jpg"),
                 "uuid": "photo-1",
                 "filename": "photo-1.jpg",
+                "date_time": "2026-05-02 12:34:56",
                 "exif": "{\"camera\": \"Nikon\", \"iso\": 200}",
                 "album": "Summer",
             },
@@ -100,6 +101,7 @@ def test_index_accepts_extra_metadata(monkeypatch):
     assert response.status_code == 200
     assert response.get_json()["success_count"] == 1
     assert captured_calls[0]["image_triplets"] == [(b"fake-image", "photo-1", "photo-1.jpg")]
+    assert captured_calls[0]["options"]["date_time"] == "2026-05-02 12:34:56"
     assert captured_calls[0]["additional_metadata_list"] == [
         {
             "exif": {"camera": "Nikon", "iso": 200},
@@ -119,6 +121,7 @@ def test_index_base64_accepts_extra_metadata(monkeypatch):
                 "image": encoded_image,
                 "uuid": "photo-1",
                 "filename": "photo-1.jpg",
+                "date_time": "2026-05-02 12:34:56",
                 "exif": {"camera": "Nikon"},
                 "album": "Summer",
             },
@@ -127,6 +130,7 @@ def test_index_base64_accepts_extra_metadata(monkeypatch):
     assert response.status_code == 200
     assert response.get_json()["success_count"] == 1
     assert captured_calls[0]["image_triplets"] == [(b"fake-image", "photo-1", "photo-1.jpg")]
+    assert captured_calls[0]["options"]["date_time"] == "2026-05-02 12:34:56"
     assert captured_calls[0]["additional_metadata_list"] == [
         {
             "exif": {"camera": "Nikon"},

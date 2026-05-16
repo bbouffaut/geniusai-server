@@ -157,6 +157,9 @@ _NON_SEARCHABLE_METADATA_KEYS = {
     "provider",
     "model",
     "run_date",
+    "ai_model",
+    "ai_rundate",
+    "photo_date",
     "has_embedding",
     "embedding_model",
     "embedding_source",
@@ -207,6 +210,33 @@ def _build_metadata_embedding_document(metadata):
             parts.append(f"{key.replace('_', ' ')}: {value_text}")
 
     return "\n".join(parts)
+
+
+def _first_non_blank(*values):
+    for value in values:
+        if value is not None:
+            if isinstance(value, str) and not value.strip():
+                continue
+            return value
+    return None
+
+
+def _ensure_search_fields(main_metadata, options):
+    ai_model = _first_non_blank(main_metadata.get("model"), main_metadata.get("ai_model"))
+    if ai_model is not None:
+        main_metadata["ai_model"] = ai_model
+
+    ai_rundate = _first_non_blank(main_metadata.get("run_date"), main_metadata.get("ai_rundate"))
+    if ai_rundate is not None:
+        main_metadata["ai_rundate"] = ai_rundate
+
+    photo_date = _first_non_blank(
+        options.get("date_time") if options else None,
+        main_metadata.get("capture_time"),
+        main_metadata.get("photo_date"),
+    )
+    if photo_date is not None:
+        main_metadata["photo_date"] = photo_date
 
 def process_image_task(
     image_triplets: list[tuple[bytes, str, str]],
@@ -392,6 +422,7 @@ def process_image_task(
 
                 _store_generation_model_keyword(main_metadata)
                 main_metadata['run_date'] = time.now().strftime("%Y-%m-%d %H:%M:%S")
+                _ensure_search_fields(main_metadata, options)
 
                 if replace_ss:
                     for key, value in main_metadata.items():
