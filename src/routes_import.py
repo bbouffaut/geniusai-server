@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify
 from config import logger
 import service_import as import_service
+import json
 
 import_bp = Blueprint('import', __name__)
 
@@ -14,6 +15,11 @@ def import_metadata_batch():
 
     if not data or 'metadata_items' not in data:
         return jsonify({"error": "No data or metadata_items provided"}), 400
+
+    logger.info(
+        "Import metadata payload values received: %s",
+        json.dumps(data, ensure_ascii=False, default=str),
+    )
 
     metadata_items = data['metadata_items']
     if not isinstance(metadata_items, list):

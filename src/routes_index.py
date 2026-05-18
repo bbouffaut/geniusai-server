@@ -52,6 +52,27 @@ INDEX_UPLOAD_RESERVED_FIELDS = {
     "tasks",
 }
 
+def _logged_form_values(form):
+    values = {}
+    for key in form.keys():
+        items = form.getlist(key)
+        if key == "api_key":
+            items = ["<redacted>" if item else item for item in items]
+        values[key] = items[0] if len(items) == 1 else items
+    return values
+
+
+def _logged_upload_files(images):
+    return [
+        {
+            "field": "image",
+            "filename": image.filename,
+            "content_type": image.content_type,
+            "content_length": image.content_length,
+        }
+        for image in images
+    ]
+
 QUALITY_SCORE_FIELDS = {
     "overall_score",
     "composition_score",
@@ -431,6 +452,20 @@ def _index_uploaded_images(request_log_message):
     filenames = _extract_uploaded_filenames(request.form)
     options = _extract_options(request.form)
     options['capture_time'] = _normalize_capture_time_value(options.get('capture_time'))
+    batch_size = len(images)
+    additional_metadata = _extract_uploaded_metadata(request.form, batch_size)
+    logger.info(
+        "Index multipart payload values received: %s",
+        json.dumps(
+            {
+                "form": _logged_form_values(request.form),
+                "files": _logged_upload_files(images),
+                "additional_metadata": additional_metadata,
+            },
+            ensure_ascii=False,
+            default=str,
+        ),
+    )
 
     required_values = {
         "image": images,
@@ -455,9 +490,7 @@ def _index_uploaded_images(request_log_message):
             )
         }), 400
 
-    batch_size = len(images)
     _record_batch_timing(batch_size)
-    additional_metadata = _extract_uploaded_metadata(request.form, batch_size)
 
     image_triplets, upload_failures = _build_uploaded_image_triplets(images, uuids, filenames)
 
