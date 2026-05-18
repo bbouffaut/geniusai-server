@@ -81,7 +81,7 @@ def test_index_requires_filename(monkeypatch):
     assert captured_calls == []
 
 
-def test_index_requires_photo_date(monkeypatch):
+def test_index_requires_capture_time(monkeypatch):
     app, captured_calls = _install_index_fakes(monkeypatch)
 
     with app.test_client() as client:
@@ -96,7 +96,7 @@ def test_index_requires_photo_date(monkeypatch):
         )
 
     assert response.status_code == 400
-    assert "photo_date" in response.get_json()["error"]
+    assert "capture_time" in response.get_json()["error"]
     assert captured_calls == []
 
 
@@ -110,7 +110,7 @@ def test_index_accepts_extra_metadata(monkeypatch):
                 "image": (io.BytesIO(b"fake-image"), "upload.jpg"),
                 "uuid": "photo-1",
                 "filename": "photo-1.jpg",
-                "photo_date": "2026-05-02 12:34:56",
+                "capture_time": "2026-05-02 12:34:56",
                 "exif": "{\"camera\": \"Nikon\", \"iso\": 200}",
                 "album": "Summer",
             },
@@ -120,7 +120,7 @@ def test_index_accepts_extra_metadata(monkeypatch):
     assert response.status_code == 200
     assert response.get_json()["success_count"] == 1
     assert captured_calls[0]["image_triplets"] == [(b"fake-image", "photo-1", "photo-1.jpg")]
-    assert captured_calls[0]["options"]["photo_date"] == "2026-05-02 12:34:56"
+    assert captured_calls[0]["options"]["capture_time"] == "2026-05-02 12:34:56"
     assert captured_calls[0]["additional_metadata_list"] == [
         {
             "exif": {"camera": "Nikon", "iso": 200},
@@ -129,7 +129,33 @@ def test_index_accepts_extra_metadata(monkeypatch):
     ]
 
 
-def test_index_keeps_photo_date_out_of_extra_metadata(monkeypatch):
+def test_index_keeps_capture_time_out_of_extra_metadata(monkeypatch):
+    app, captured_calls = _install_index_fakes(monkeypatch)
+
+    with app.test_client() as client:
+        response = client.post(
+            "/index",
+            data={
+                "image": (io.BytesIO(b"fake-image"), "upload.jpg"),
+                "uuid": "photo-1",
+                "filename": "photo-1.jpg",
+                "capture_time": "2026-05-02 12:34:56",
+                "album": "Summer",
+            },
+            content_type="multipart/form-data",
+        )
+
+    assert response.status_code == 200
+    assert response.get_json()["success_count"] == 1
+    assert captured_calls[0]["options"]["capture_time"] == "2026-05-02 12:34:56"
+    assert captured_calls[0]["additional_metadata_list"] == [
+        {
+            "album": "Summer",
+        }
+    ]
+
+
+def test_index_rejects_legacy_capture_time_fields(monkeypatch):
     app, captured_calls = _install_index_fakes(monkeypatch)
 
     with app.test_client() as client:
@@ -140,38 +166,12 @@ def test_index_keeps_photo_date_out_of_extra_metadata(monkeypatch):
                 "uuid": "photo-1",
                 "filename": "photo-1.jpg",
                 "photo_date": "2026-05-02 12:34:56",
-                "album": "Summer",
-            },
-            content_type="multipart/form-data",
-        )
-
-    assert response.status_code == 200
-    assert response.get_json()["success_count"] == 1
-    assert captured_calls[0]["options"]["photo_date"] == "2026-05-02 12:34:56"
-    assert captured_calls[0]["additional_metadata_list"] == [
-        {
-            "album": "Summer",
-        }
-    ]
-
-
-def test_index_rejects_legacy_photo_date_fields(monkeypatch):
-    app, captured_calls = _install_index_fakes(monkeypatch)
-
-    with app.test_client() as client:
-        response = client.post(
-            "/index",
-            data={
-                "image": (io.BytesIO(b"fake-image"), "upload.jpg"),
-                "uuid": "photo-1",
-                "filename": "photo-1.jpg",
-                "photos_date": "2026-05-02 12:34:56",
             },
             content_type="multipart/form-data",
         )
 
     assert response.status_code == 400
-    assert "Use 'photo_date'" in response.get_json()["error"]
+    assert "Use 'capture_time'" in response.get_json()["error"]
     assert captured_calls == []
 
 
@@ -186,7 +186,7 @@ def test_index_base64_accepts_extra_metadata(monkeypatch):
                 "image": encoded_image,
                 "uuid": "photo-1",
                 "filename": "photo-1.jpg",
-                "photo_date": "2026-05-02 12:34:56",
+                "capture_time": "2026-05-02 12:34:56",
                 "exif": {"camera": "Nikon"},
                 "album": "Summer",
             },
@@ -195,7 +195,7 @@ def test_index_base64_accepts_extra_metadata(monkeypatch):
     assert response.status_code == 200
     assert response.get_json()["success_count"] == 1
     assert captured_calls[0]["image_triplets"] == [(b"fake-image", "photo-1", "photo-1.jpg")]
-    assert captured_calls[0]["options"]["photo_date"] == "2026-05-02 12:34:56"
+    assert captured_calls[0]["options"]["capture_time"] == "2026-05-02 12:34:56"
     assert captured_calls[0]["additional_metadata_list"] == [
         {
             "exif": {"camera": "Nikon"},
@@ -204,7 +204,7 @@ def test_index_base64_accepts_extra_metadata(monkeypatch):
     ]
 
 
-def test_index_base64_keeps_photo_date_out_of_extra_metadata(monkeypatch):
+def test_index_base64_keeps_capture_time_out_of_extra_metadata(monkeypatch):
     app, captured_calls = _install_index_fakes(monkeypatch)
     encoded_image = base64.b64encode(b"fake-image").decode("ascii")
 
@@ -215,14 +215,14 @@ def test_index_base64_keeps_photo_date_out_of_extra_metadata(monkeypatch):
                 "image": encoded_image,
                 "uuid": "photo-1",
                 "filename": "photo-1.jpg",
-                "photo_date": "2026-05-02 12:34:56",
+                "capture_time": "2026-05-02 12:34:56",
                 "album": "Summer",
             },
         )
 
     assert response.status_code == 200
     assert response.get_json()["success_count"] == 1
-    assert captured_calls[0]["options"]["photo_date"] == "2026-05-02 12:34:56"
+    assert captured_calls[0]["options"]["capture_time"] == "2026-05-02 12:34:56"
     assert captured_calls[0]["additional_metadata_list"] == [
         {
             "album": "Summer",
@@ -230,7 +230,7 @@ def test_index_base64_keeps_photo_date_out_of_extra_metadata(monkeypatch):
     ]
 
 
-def test_index_base64_rejects_legacy_photo_date_fields(monkeypatch):
+def test_index_base64_rejects_legacy_capture_time_fields(monkeypatch):
     app, captured_calls = _install_index_fakes(monkeypatch)
     encoded_image = base64.b64encode(b"fake-image").decode("ascii")
 
@@ -246,11 +246,11 @@ def test_index_base64_rejects_legacy_photo_date_fields(monkeypatch):
         )
 
     assert response.status_code == 400
-    assert "Use 'photo_date'" in response.get_json()["error"]
+    assert "Use 'capture_time'" in response.get_json()["error"]
     assert captured_calls == []
 
 
-def test_index_base64_requires_photo_date(monkeypatch):
+def test_index_base64_requires_capture_time(monkeypatch):
     app, captured_calls = _install_index_fakes(monkeypatch)
     encoded_image = base64.b64encode(b"fake-image").decode("ascii")
 
@@ -265,5 +265,5 @@ def test_index_base64_requires_photo_date(monkeypatch):
         )
 
     assert response.status_code == 400
-    assert "photo_date" in response.get_json()["error"]
+    assert "capture_time" in response.get_json()["error"]
     assert captured_calls == []

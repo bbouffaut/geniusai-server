@@ -71,8 +71,8 @@ def _project_search_result(result, return_metadata=False):
         "filename": result.get("filename"),
         "match_type": result.get("match_type"),
         "pertinence_score": result.get("pertinence_score"),
-        "photo_date": result.get("photo_date") or (
-            metadata.get("photo_date") if isinstance(metadata, dict) else None
+        "capture_time": result.get("capture_time") or (
+            metadata.get("capture_time") if isinstance(metadata, dict) else None
         ),
         "uuid": result.get("uuid") or (
             metadata.get("uuid") if isinstance(metadata, dict) else None

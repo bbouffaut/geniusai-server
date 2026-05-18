@@ -18,8 +18,8 @@ index_bp = Blueprint('index', __name__)
 # Store timestamps of the last 100 requests to calculate processing speed
 request_timestamps = deque(maxlen=100)
 
-INDEX_UPLOAD_REQUIRED_FIELDS = ("image", "uuid", "filename", "photo_date")
-INDEX_UNSUPPORTED_PHOTO_DATE_FIELDS = ("date_time", "photos_date")
+INDEX_UPLOAD_REQUIRED_FIELDS = ("image", "uuid", "filename", "capture_time")
+INDEX_UNSUPPORTED_CAPTURE_TIME_FIELDS = ("photo_date", "date_time", "photos_date")
 INDEX_UPLOAD_RESERVED_FIELDS = {
     "image",
     "images",
@@ -48,7 +48,7 @@ INDEX_UPLOAD_RESERVED_FIELDS = {
     "regenerate_metadata",
     "regenerateMetadata",
     "prompt",
-    "photo_date",
+    "capture_time",
     "tasks",
 }
 
@@ -92,7 +92,6 @@ GET_DATE_FIELDS = {
     "ai_run_date",
     "ai_rundate",
     "capture_time",
-    "photo_date",
     "run_date",
 }
 
@@ -152,7 +151,7 @@ def _extract_options(data):
         reg_val = data.get('regenerateMetadata', 'true')
     options['regenerate_metadata'] = str(reg_val).lower() == 'true'
     options['prompt'] = data.get('prompt')
-    options['photo_date'] = data.get('photo_date')
+    options['capture_time'] = data.get('capture_time')
 
     tasks_raw = data.get('tasks')
     if tasks_raw:
@@ -173,7 +172,7 @@ def _extract_options(data):
     return options
 
 
-def _normalize_photo_date_value(value):
+def _normalize_capture_time_value(value):
     if value is None:
         return None
 
@@ -184,8 +183,8 @@ def _normalize_photo_date_value(value):
     return text
 
 
-def _unsupported_photo_date_fields(data):
-    return [field for field in INDEX_UNSUPPORTED_PHOTO_DATE_FIELDS if field in data]
+def _unsupported_capture_time_fields(data):
+    return [field for field in INDEX_UNSUPPORTED_CAPTURE_TIME_FIELDS if field in data]
 
 
 def _extract_uploaded_images(files):
@@ -418,12 +417,12 @@ def _build_uploaded_image_triplets(images, uuids, filenames):
 def _index_uploaded_images(request_log_message):
     logger.info(request_log_message)
 
-    unsupported_fields = _unsupported_photo_date_fields(request.form)
+    unsupported_fields = _unsupported_capture_time_fields(request.form)
     if unsupported_fields:
         return jsonify({
             "error": (
-                f"Unsupported photo date field(s): {', '.join(unsupported_fields)}. "
-                "Use 'photo_date'."
+                f"Unsupported capture time field(s): {', '.join(unsupported_fields)}. "
+                "Use 'capture_time'."
             )
         }), 400
 
@@ -431,20 +430,20 @@ def _index_uploaded_images(request_log_message):
     uuids = _extract_uploaded_uuids(request.form)
     filenames = _extract_uploaded_filenames(request.form)
     options = _extract_options(request.form)
-    options['photo_date'] = _normalize_photo_date_value(options.get('photo_date'))
+    options['capture_time'] = _normalize_capture_time_value(options.get('capture_time'))
 
     required_values = {
         "image": images,
         "uuid": uuids,
         "filename": filenames,
-        "photo_date": options.get('photo_date'),
+        "capture_time": options.get('capture_time'),
     }
     missing_fields = [field for field, values in required_values.items() if not values]
     if missing_fields:
         return jsonify({
             "error": (
                 f"Missing required fields: {', '.join(missing_fields)}. "
-                "Upload files as multipart/form-data with repeated 'image', 'uuid', 'filename', and 'photo_date' fields."
+                "Upload files as multipart/form-data with repeated 'image', 'uuid', 'filename', and 'capture_time' fields."
             )
         }), 400
 
@@ -721,12 +720,8 @@ def _photo_matches_filters(uuid, metadata, filters):
                 normalized_metadata.get("ai_rundate"),
                 normalized_metadata.get("run_date"),
             )
-        elif normalized_key == "photo_date":
-            actual_value = normalized_metadata.get("photo_date")
         elif normalized_key == "capture_time":
-            actual_value = _first_non_blank_value(
-                normalized_metadata.get("capture_time"),
-            )
+            actual_value = normalized_metadata.get("capture_time")
         else:
             actual_value = normalized_metadata.get(key)
             if actual_value is None and key != normalized_key:
@@ -745,7 +740,7 @@ def _build_photo_response(uuid, metadata_dict):
 
     ai_model = _first_non_blank_value(metadata_dict.get("ai_model"), metadata_dict.get("model"))
     ai_rundate = _first_non_blank_value(metadata_dict.get("ai_rundate"), metadata_dict.get("run_date"))
-    photo_date = metadata_dict.get("photo_date")
+    capture_time = metadata_dict.get("capture_time")
     filename = metadata_dict.get("filename")
     provider = metadata_dict.get("provider")
 
@@ -792,7 +787,7 @@ def _build_photo_response(uuid, metadata_dict):
         "provider": provider,
         "ai_model": ai_model,
         "ai_rundate": ai_rundate,
-        "photo_date": photo_date,
+        "capture_time": capture_time,
         "metadata": metadata_fields,
         "quality": quality_fields,
     }
@@ -843,12 +838,12 @@ def index_images_batch_base64():
     if not data:
         return jsonify({"error": "No JSON payload provided"}), 400
 
-    unsupported_fields = _unsupported_photo_date_fields(data)
+    unsupported_fields = _unsupported_capture_time_fields(data)
     if unsupported_fields:
         return jsonify({
             "error": (
-                f"Unsupported photo date field(s): {', '.join(unsupported_fields)}. "
-                "Use 'photo_date'."
+                f"Unsupported capture time field(s): {', '.join(unsupported_fields)}. "
+                "Use 'capture_time'."
             )
         }), 400
     
@@ -863,7 +858,7 @@ def index_images_batch_base64():
         return jsonify({"error": f"Missing required fields: {', '.join(missing_fields)}"}), 400
 
     options = _extract_options(data)
-    options['photo_date'] = _normalize_photo_date_value(options.get('photo_date'))
+    options['capture_time'] = _normalize_capture_time_value(options.get('capture_time'))
     image_bytes = base64.b64decode(image.encode('ascii'))
 
     additional_metadata = [_extract_json_metadata(data)]

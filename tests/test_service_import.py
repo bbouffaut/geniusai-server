@@ -19,7 +19,7 @@ def _make_logger():
     )
 
 
-def test_import_metadata_task_stores_photo_date_contract_field(monkeypatch):
+def test_import_metadata_task_stores_capture_time_contract_field(monkeypatch):
     fake_config = types.ModuleType("config")
     fake_config.logger = _make_logger()
 
@@ -50,7 +50,8 @@ def test_import_metadata_task_stores_photo_date_contract_field(monkeypatch):
             {
                 "uuid": "photo-1",
                 "caption": "Sunset over the sea",
-                "photo_date": "2026-05-02 12:34:56",
+                "capture_time": "2026-05-02 12:34:56",
+                "exif": {"camera_make": "Nikon", "camera_model": "D850"},
             }
         ]
     )
@@ -59,4 +60,8 @@ def test_import_metadata_task_stores_photo_date_contract_field(monkeypatch):
     assert failure_count == 0
     assert len(captured_updates) == 1
     assert captured_updates[0]["metadata"]["caption"] == "Sunset over the sea"
-    assert captured_updates[0]["metadata"]["photo_date"] == "2026-05-02 12:34:56"
+    assert captured_updates[0]["metadata"]["capture_time"] == "2026-05-02 12:34:56"
+    assert captured_updates[0]["metadata"]["exif"] == {
+        "camera_make": "Nikon",
+        "camera_model": "D850",
+    }

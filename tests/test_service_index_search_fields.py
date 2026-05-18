@@ -74,12 +74,21 @@ def test_process_image_task_stores_search_fields(monkeypatch):
         options={
             "provider": "ollama",
             "model": "gpt-4o",
-            "photo_date": "2026-05-02 12:34:56",
+            "capture_time": "2026-05-02 12:34:56",
             "compute_embeddings": False,
             "compute_metadata": True,
             "compute_quality": False,
             "regenerate_metadata": True,
         },
+        additional_metadata_list=[
+            {
+                "exif": {
+                    "camera_make": "Nikon",
+                    "camera_model": "D850",
+                    "iso_speed_rating": 200,
+                }
+            }
+        ],
     )
 
     assert success_count == 1
@@ -92,10 +101,15 @@ def test_process_image_task_stores_search_fields(monkeypatch):
     assert stored_metadata["model"] == "gpt-4o"
     assert stored_metadata["ai_model"] == "gpt-4o"
     assert stored_metadata["ai_rundate"] == stored_metadata["run_date"]
-    assert stored_metadata["photo_date"] == "2026-05-02 12:34:56"
+    assert stored_metadata["capture_time"] == "2026-05-02 12:34:56"
+    assert stored_metadata["exif"] == {
+        "camera_make": "Nikon",
+        "camera_model": "D850",
+        "iso_speed_rating": 200,
+    }
 
 
-def test_process_image_task_stores_photo_date_contract_field(monkeypatch):
+def test_process_image_task_stores_capture_time_contract_field(monkeypatch):
     fake_config = types.ModuleType("config")
     fake_config.TEXT_EMBEDDING_MODEL_ID = "text-model"
     fake_config.logger = _make_logger()
@@ -150,7 +164,7 @@ def test_process_image_task_stores_photo_date_contract_field(monkeypatch):
         options={
             "provider": "ollama",
             "model": "gpt-4o",
-            "photo_date": "2026-05-02 12:34:56",
+            "capture_time": "2026-05-02 12:34:56",
             "compute_embeddings": False,
             "compute_metadata": True,
             "compute_quality": False,
@@ -161,4 +175,4 @@ def test_process_image_task_stores_photo_date_contract_field(monkeypatch):
     assert success_count == 1
     assert failure_count == 0
     assert len(captured_add_calls) == 1
-    assert captured_add_calls[0]["metadata"]["photo_date"] == "2026-05-02 12:34:56"
+    assert captured_add_calls[0]["metadata"]["capture_time"] == "2026-05-02 12:34:56"

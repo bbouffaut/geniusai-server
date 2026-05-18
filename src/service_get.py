@@ -46,7 +46,6 @@ GET_DATE_FIELDS = {
     "ai_run_date",
     "ai_rundate",
     "capture_time",
-    "photo_date",
     "run_date",
 }
 
@@ -288,8 +287,6 @@ def _photo_matches_filters(uuid, metadata, filters):
                 normalized_metadata.get("ai_rundate"),
                 normalized_metadata.get("run_date"),
             )
-        elif normalized_key == "photo_date":
-            actual_value = normalized_metadata.get("photo_date")
         elif normalized_key == "capture_time":
             actual_value = normalized_metadata.get("capture_time")
         else:
@@ -310,7 +307,7 @@ def _build_photo_response(uuid, metadata_dict):
 
     ai_model = _first_non_blank_value(metadata_dict.get("ai_model"), metadata_dict.get("model"))
     ai_rundate = _first_non_blank_value(metadata_dict.get("ai_rundate"), metadata_dict.get("run_date"))
-    photo_date = metadata_dict.get("photo_date")
+    capture_time = metadata_dict.get("capture_time")
     filename = metadata_dict.get("filename")
     provider = metadata_dict.get("provider")
 
@@ -357,7 +354,7 @@ def _build_photo_response(uuid, metadata_dict):
         "provider": provider,
         "ai_model": ai_model,
         "ai_rundate": ai_rundate,
-        "photo_date": photo_date,
+        "capture_time": capture_time,
         "metadata": metadata_fields,
         "quality": quality_fields,
     }

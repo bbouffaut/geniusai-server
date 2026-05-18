@@ -43,8 +43,10 @@ def import_metadata_task(metadata_items: list[dict]) -> tuple[int, int]:
                 metadata_to_update['caption'] = item['caption']
             if 'alt_text' in item and item['alt_text'] and item['alt_text'] != '':
                 metadata_to_update['alt_text'] = item['alt_text']
-            if 'photo_date' in item and item['photo_date'] and item['photo_date'] != '':
-                metadata_to_update['photo_date'] = item['photo_date']
+            if 'capture_time' in item and item['capture_time'] and item['capture_time'] != '':
+                metadata_to_update['capture_time'] = item['capture_time']
+            if 'exif' in item and item['exif']:
+                metadata_to_update['exif'] = item['exif']
 
             if not metadata_to_update:
                 logger.warning(f"No metadata provided to update for UUID {uuid}. Skipping.")

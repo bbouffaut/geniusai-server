@@ -159,7 +159,7 @@ _NON_SEARCHABLE_METADATA_KEYS = {
     "run_date",
     "ai_model",
     "ai_rundate",
-    "photo_date",
+    "capture_time",
     "has_embedding",
     "embedding_model",
     "embedding_source",
@@ -230,12 +230,12 @@ def _ensure_search_fields(main_metadata, options):
     if ai_rundate is not None:
         main_metadata["ai_rundate"] = ai_rundate
 
-    photo_date = _first_non_blank(
-        options.get("photo_date") if options else None,
-        main_metadata.get("photo_date"),
+    capture_time = _first_non_blank(
+        options.get("capture_time") if options else None,
+        main_metadata.get("capture_time"),
     )
-    if photo_date is not None:
-        main_metadata["photo_date"] = photo_date
+    if capture_time is not None:
+        main_metadata["capture_time"] = capture_time
 
 def process_image_task(
     image_triplets: list[tuple[bytes, str, str]],
@@ -330,7 +330,7 @@ def process_image_task(
         analysis_service = get_analysis_service()
 
         # Convert lists to sets for faster lookup in analyze_batch
-        _, datetimes, metadata_results, ratings = analysis_service.analyze_batch(
+        _, _datetimes, metadata_results, ratings = analysis_service.analyze_batch(
             image_triplets, options, None, None,
             set(), set(images_needing_metadata), set(images_needing_quality)
         )
@@ -383,12 +383,6 @@ def process_image_task(
                 # Update only basic fields that should always be current
                 main_metadata["filename"] = filename
                 main_metadata["uuid"] = uuid
-
-                # Update/add datetime if present
-                if datetimes:
-                    capture_time = datetimes.get(uuid)
-                    if capture_time:
-                        main_metadata["capture_time"] = capture_time
 
                 # Update quality scores if newly generated
                 if rating_data and rating_data.success:

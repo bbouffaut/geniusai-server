@@ -65,7 +65,7 @@ def test_get_returns_all_photos_when_body_empty(monkeypatch):
                     "ai_model": "gpt-4o",
                     "ai_rundate": "2026-05-01 10:00:00",
                     "run_date": "2026-05-01 10:00:00",
-                    "photo_date": "2026-04-30 09:30:00",
+                    "capture_time": "2026-04-30 09:30:00",
                     "overall_score": 9.1,
                     "composition_score": 8.2,
                     "quality_critique": "Strong composition and exposure.",
@@ -77,7 +77,7 @@ def test_get_returns_all_photos_when_body_empty(monkeypatch):
                     "title": "beta",
                     "provider": "ollama",
                     "model": "gpt-4o",
-                    "photo_date": "2026-04-29 08:15:00",
+                    "capture_time": "2026-04-29 08:15:00",
                 },
                 {
                     "uuid": "photo-c",
@@ -124,7 +124,7 @@ def test_get_filters_photos_by_fields_and_nested_metadata(monkeypatch):
                     "ai_model": "gpt-4o",
                     "ai_rundate": "2026-05-01 10:00:00",
                     "run_date": "2026-05-01 10:00:00",
-                    "photo_date": "2026-04-30 09:30:00",
+                    "capture_time": "2026-04-30 09:30:00",
                     "overall_score": 9.1,
                     "composition_score": 8.2,
                     "quality_critique": "Strong composition and exposure.",
@@ -136,7 +136,7 @@ def test_get_filters_photos_by_fields_and_nested_metadata(monkeypatch):
                     "title": "beta",
                     "provider": "ollama",
                     "model": "gpt-4o",
-                    "photo_date": "2026-04-29 08:15:00",
+                    "capture_time": "2026-04-29 08:15:00",
                     "overall_score": 7.0,
                     "quality_critique": "Average exposure.",
                     "exif": {"camera": "Canon R5"},
@@ -163,7 +163,7 @@ def test_get_filters_photos_by_fields_and_nested_metadata(monkeypatch):
                     "uuid": "photo-a",
                     "filename": "alpha.jpg",
                     "ai_run_date": "2026-05-01 10:00:00",
-                    "photo_date": "2026-04-30",
+                    "capture_time": "2026-04-30",
                     "quality": {
                         "overall_score": 9.1,
                     },
@@ -185,7 +185,7 @@ def test_get_filters_photos_by_fields_and_nested_metadata(monkeypatch):
     assert photo["filename"] == "alpha.jpg"
     assert photo["ai_model"] == "gpt-4o"
     assert photo["ai_rundate"] == "2026-05-01 10:00:00"
-    assert photo["photo_date"] == "2026-04-30 09:30:00"
+    assert photo["capture_time"] == "2026-04-30 09:30:00"
     assert photo["quality"]["overall_score"] == 9.1
     assert photo["metadata"]["title"] == "alpha"
     assert photo["metadata"]["exif"]["camera"] == "Nikon D850"

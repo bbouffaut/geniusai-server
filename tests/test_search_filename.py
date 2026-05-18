@@ -42,7 +42,7 @@ def _install_core_fakes(monkeypatch):
                 "quality_critique": "Strong composition and exposure.",
                 "model": "gpt-4o",
                 "run_date": "2026-05-01 10:00:00",
-                "photo_date": "2026-04-30 09:30:00",
+                "capture_time": "2026-04-30 09:30:00",
             },
             {
                 "filename": "beta.jpg",
@@ -63,7 +63,7 @@ def _install_core_fakes(monkeypatch):
                 "quality_critique": "Strong composition and exposure.",
                 "model": "gpt-4o",
                 "run_date": "2026-05-01 10:00:00",
-                "photo_date": "2026-04-30 09:30:00",
+                "capture_time": "2026-04-30 09:30:00",
             },
             {
                 "filename": "beta.jpg",
@@ -73,7 +73,7 @@ def _install_core_fakes(monkeypatch):
                 "filename": "gamma.jpg",
                 "title": "contains search term",
                 "exif": {"camera": "Leica M10"},
-                "photo_date": "2026-04-29 08:15:00",
+                "capture_time": "2026-04-29 08:15:00",
             },
         ],
     }
@@ -100,10 +100,10 @@ def test_search_images_exposes_internal_metadata(monkeypatch):
     assert by_uuid["photo-a"]["quality"]["quality_critique"] == "Strong composition and exposure."
     assert by_uuid["photo-a"]["ai_model"] == "gpt-4o"
     assert by_uuid["photo-a"]["ai_rundate"] == "2026-05-01 10:00:00"
-    assert by_uuid["photo-a"]["photo_date"] == "2026-04-30 09:30:00"
+    assert by_uuid["photo-a"]["capture_time"] == "2026-04-30 09:30:00"
     assert by_uuid["photo-b"]["filename"] == "beta.jpg"
     assert by_uuid["photo-c"]["filename"] == "gamma.jpg"
-    assert by_uuid["photo-c"]["photo_date"] == "2026-04-29 08:15:00"
+    assert by_uuid["photo-c"]["capture_time"] == "2026-04-29 08:15:00"
     assert by_uuid["photo-c"]["metadata"]["exif"]["camera"] == "Leica M10"
     assert by_uuid["photo-a"]["match_type"] == "semantic"
     assert by_uuid["photo-c"]["match_type"] == "metadata"
@@ -121,7 +121,7 @@ def test_search_route_returns_minimum_fields_by_default(monkeypatch):
             "distance": 0.1,
             "pertinence_score": 0.9,
             "match_type": "semantic",
-            "photo_date": "2026-04-30 09:30:00",
+            "capture_time": "2026-04-30 09:30:00",
             "ai_model": "gpt-4o",
             "ai_rundate": "2026-05-01 10:00:00",
             "metadata": {
@@ -129,7 +129,7 @@ def test_search_route_returns_minimum_fields_by_default(monkeypatch):
                 "filename": "alpha.jpg",
                 "title": "alpha",
                 "exif": {"camera": "Nikon D850"},
-                "photo_date": "2026-04-30 09:30:00",
+                "capture_time": "2026-04-30 09:30:00",
                 "run_date": "2026-05-01 10:00:00",
                 "model": "gpt-4o",
             },
@@ -163,7 +163,7 @@ def test_search_route_returns_minimum_fields_by_default(monkeypatch):
             "filename": "alpha.jpg",
             "match_type": "semantic",
             "pertinence_score": 0.9,
-            "photo_date": "2026-04-30 09:30:00",
+            "capture_time": "2026-04-30 09:30:00",
             "uuid": "photo-a",
         }
     ]
@@ -180,7 +180,7 @@ def test_search_route_includes_metadata_when_requested(monkeypatch):
             "distance": 0.1,
             "pertinence_score": 0.9,
             "match_type": "semantic",
-            "photo_date": "2026-04-30 09:30:00",
+            "capture_time": "2026-04-30 09:30:00",
             "ai_model": "gpt-4o",
             "ai_rundate": "2026-05-01 10:00:00",
             "metadata": {
@@ -188,7 +188,7 @@ def test_search_route_includes_metadata_when_requested(monkeypatch):
                 "filename": "alpha.jpg",
                 "title": "alpha",
                 "exif": {"camera": "Nikon D850"},
-                "photo_date": "2026-04-30 09:30:00",
+                "capture_time": "2026-04-30 09:30:00",
                 "run_date": "2026-05-01 10:00:00",
                 "model": "gpt-4o",
             },
@@ -227,11 +227,11 @@ def test_search_route_includes_metadata_when_requested(monkeypatch):
                 "filename": "alpha.jpg",
                 "title": "alpha",
                 "exif": {"camera": "Nikon D850"},
-                "photo_date": "2026-04-30 09:30:00",
+                "capture_time": "2026-04-30 09:30:00",
                 "run_date": "2026-05-01 10:00:00",
                 "model": "gpt-4o",
             },
-            "photo_date": "2026-04-30 09:30:00",
+            "capture_time": "2026-04-30 09:30:00",
             "uuid": "photo-a",
         }
     ]
