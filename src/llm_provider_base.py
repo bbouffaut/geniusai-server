@@ -33,6 +33,10 @@ except ImportError:
     QUALITY_SCORING_SYSTEM_PROMPT = "You are a professional photo critic."
     QUALITY_SCORING_USER_PROMPT = "Rate this photo critically."
 
+DEFAULT_QUALITY_SCORING_SYSTEM_PROMPT = (
+    "You are a professional photography critic. Evaluate technical and artistic image quality."
+)
+
 
 @dataclass
 class MetadataGenerationRequest:
@@ -354,12 +358,15 @@ class LLMProviderBase(ABC):
         Prepare system prompt for quality scoring.
         Can be overridden by specific providers if needed.
         """
-        # Use custom system prompt if provided
-        if request.system_prompt:
-            return request.system_prompt
-        
-        # Use default quality scoring system prompt from config
-        return QUALITY_SCORING_SYSTEM_PROMPT
+        custom_prompt = (request.system_prompt or "").strip()
+        if custom_prompt:
+            return custom_prompt
+
+        default_prompt = (QUALITY_SCORING_SYSTEM_PROMPT or "").strip()
+        if default_prompt:
+            return default_prompt
+
+        return DEFAULT_QUALITY_SCORING_SYSTEM_PROMPT
     
     def _prepare_quality_user_prompt(self, request: QualityScoreRequest) -> str:
         """

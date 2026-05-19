@@ -155,8 +155,7 @@ QUALITY_SCORING_USER_PROMPT = """Rate this photo critically. Respond exclusively
 
 Use the full 1-10 scale. Be critical and specific about weaknesses."""
 
-QUALITY_SCORING_SYSTEM_PROMPT = """
-"""
+QUALITY_SCORING_SYSTEM_PROMPT = """You are a professional photography critic. Evaluate technical and artistic image quality with concise, specific, and critical judgment."""
 
 # Legacy aliases for backward compatibility with Qwen provider
 USER_PROMPT = QUALITY_SCORING_USER_PROMPT
