@@ -6,6 +6,59 @@ from datetime import datetime as time
 from service_index import _flatten_keywords
 
 
+OPTIONAL_TEXT_FIELDS = (
+    'filename',
+    'provider',
+    'model',
+    'ai_model',
+    'ai_rundate',
+    'capture_time',
+)
+
+
+def _is_blank(value) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return value.strip() == ''
+    if isinstance(value, (list, dict)):
+        return len(value) == 0
+    return False
+
+
+def _existing_metadata(existing_record: dict | None) -> dict:
+    if not existing_record or not existing_record.get('ids'):
+        return {}
+
+    metadatas = existing_record.get('metadatas') or []
+    if not metadatas or not isinstance(metadatas[0], dict):
+        return {}
+
+    return dict(metadatas[0])
+
+
+def _metadata_update_from_item(item: dict) -> dict:
+    metadata_to_update = {}
+
+    if not _is_blank(item.get('keywords')):
+        logger.debug(f"Importing keywords for UUID {item.get('uuid')}: {item['keywords']}")
+        metadata_to_update['keywords'] = json.dumps(item['keywords'])
+        metadata_to_update['flattened_keywords'] = _flatten_keywords(item['keywords'])
+
+    for key in ('title', 'caption', 'alt_text'):
+        if not _is_blank(item.get(key)):
+            metadata_to_update[key] = item[key]
+
+    for key in OPTIONAL_TEXT_FIELDS:
+        if not _is_blank(item.get(key)):
+            metadata_to_update[key] = item[key]
+
+    if not _is_blank(item.get('exif')):
+        metadata_to_update['exif'] = item['exif']
+
+    return metadata_to_update
+
+
 def import_metadata_task(metadata_items: list[dict]) -> tuple[int, int]:
     """
     Process a batch of metadata imports.
@@ -32,25 +85,15 @@ def import_metadata_task(metadata_items: list[dict]) -> tuple[int, int]:
         try:
             existing_record = postgre_service.get_image(uuid)
 
-            metadata_to_update = {}
-            if 'keywords' in item and item['keywords'] and item['keywords'] != []:
-                logger.debug(f"Importing keywords for UUID {uuid}: {item['keywords']}")
-                metadata_to_update['keywords'] = json.dumps(item['keywords'])
-                metadata_to_update['flattened_keywords'] = _flatten_keywords(item['keywords'])
-            if 'title' in item and item['title'] and item['title'] != '':
-                metadata_to_update['title'] = item['title']
-            if 'caption' in item and item['caption'] and item['caption'] != '':
-                metadata_to_update['caption'] = item['caption']
-            if 'alt_text' in item and item['alt_text'] and item['alt_text'] != '':
-                metadata_to_update['alt_text'] = item['alt_text']
-            if 'capture_time' in item and item['capture_time'] and item['capture_time'] != '':
-                metadata_to_update['capture_time'] = item['capture_time']
-            if 'exif' in item and item['exif']:
-                metadata_to_update['exif'] = item['exif']
+            metadata_to_update = _metadata_update_from_item(item)
 
             if not metadata_to_update:
-                logger.warning(f"No metadata provided to update for UUID {uuid}. Skipping.")
-                failure_count += 1
+                if existing_record and existing_record.get('ids'):
+                    logger.info(f"No nonblank metadata provided for existing UUID {uuid}. Preserving existing record.")
+                    success_count += 1
+                else:
+                    logger.warning(f"No metadata provided to update for UUID {uuid}. Skipping.")
+                    failure_count += 1
                 continue
 
             # If the record doesn't exist in the DB we will add a metadata-only
@@ -64,6 +107,10 @@ def import_metadata_task(metadata_items: list[dict]) -> tuple[int, int]:
                 continue
 
             metadata_to_update['run_date'] = time.now().strftime("%Y-%m-%d %H:%M:%S")
+            metadata_to_update = {
+                **_existing_metadata(existing_record),
+                **metadata_to_update,
+            }
 
             postgre_service.update_image(uuid, metadata_to_update)
             logger.info(f"Successfully imported metadata for UUID {uuid}.")
