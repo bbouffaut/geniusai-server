@@ -107,6 +107,65 @@ def test_get_returns_all_photos_when_body_empty(monkeypatch):
     assert payload["photos"][0]["metadata"]["exif"]["camera"] == "Nikon D850"
 
 
+def test_get_include_embedding_returns_document_and_embedding(monkeypatch):
+    fake_config = types.ModuleType("config")
+    fake_config.logger = _make_logger()
+
+    photo_data_with_embedding = {
+        "ids": ["photo-a"],
+        "metadatas": [{"uuid": "photo-a", "filename": "alpha.jpg", "title": "Alpha"}],
+        "documents": ["filename: alpha\ntitle: Alpha"],
+        "embeddings": [[0.1, 0.2, 0.3]],
+    }
+
+    fake_postgre_service = types.ModuleType("service_postgre")
+    fake_postgre_service.get_image = lambda *args, **kwargs: None
+    fake_postgre_service.get_image_metadatas = lambda ids=None, include_embedding=False: photo_data_with_embedding
+    fake_postgre_service.get_all_image_ids = lambda *args, **kwargs: []
+
+    fake_service_index = types.ModuleType("service_index")
+    fake_service_index.keywords_with_generation_model = lambda keywords, provider, model: keywords
+
+    monkeypatch.setitem(sys.modules, "config", fake_config)
+    monkeypatch.setitem(sys.modules, "service_postgre", fake_postgre_service)
+    monkeypatch.setitem(sys.modules, "service_index", fake_service_index)
+    sys.modules.pop("service_get", None)
+    sys.modules.pop("routes_get", None)
+
+    routes_get = importlib.import_module("routes_get")
+    app = Flask(__name__)
+    app.register_blueprint(routes_get.get_bp)
+
+    with app.test_client() as client:
+        response = client.post("/get", json={"include_embedding": True})
+
+    payload = response.get_json()
+    assert response.status_code == 200
+    assert payload["count"] == 1
+    photo = payload["photos"][0]
+    assert photo["document"] == "filename: alpha\ntitle: Alpha"
+    assert photo["embedding"] == [0.1, 0.2, 0.3]
+
+
+def test_get_without_include_embedding_omits_document_and_embedding(monkeypatch):
+    app = _install_get_fakes(
+        monkeypatch,
+        photo_data={
+            "ids": ["photo-a"],
+            "metadatas": [{"uuid": "photo-a", "filename": "alpha.jpg"}],
+        },
+    )
+
+    with app.test_client() as client:
+        response = client.post("/get", json={})
+
+    payload = response.get_json()
+    assert response.status_code == 200
+    photo = payload["photos"][0]
+    assert "document" not in photo
+    assert "embedding" not in photo
+
+
 def test_get_filters_photos_by_fields_and_nested_metadata(monkeypatch):
     app = _install_get_fakes(
         monkeypatch,

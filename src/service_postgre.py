@@ -1097,7 +1097,7 @@ def query_images(query_embedding, n_results, where_clause=None, include_embeddin
         return fallback
 
 
-def get_image_metadatas(ids=None, where_clause=None):
+def get_image_metadatas(ids=None, where_clause=None, include_embedding=False):
     _ensure_initialized()
     effective_where_clause = dict(where_clause or {})
     if ids:
@@ -1105,19 +1105,31 @@ def get_image_metadatas(ids=None, where_clause=None):
 
     filter_sql, filter_params = _filter_sql(effective_where_clause, "WHERE")
 
+    if include_embedding:
+        select_cols = sql.SQL("uuid, metadata, document, embedding::text AS embedding")
+    else:
+        select_cols = sql.SQL("uuid, metadata")
+
     with _connect_to_target() as conn:
         rows = conn.execute(
             sql.SQL(
                 """
-                SELECT uuid, metadata
+                SELECT {select_cols}
                 FROM photo_metadata
                 {filter_sql}
                 ORDER BY uuid
                 """
-            ).format(filter_sql=filter_sql),
+            ).format(select_cols=select_cols, filter_sql=filter_sql),
             filter_params,
         ).fetchall()
 
+    if include_embedding:
+        return _result(
+            [row[0] for row in rows],
+            metadatas=[row[1] or {} for row in rows],
+            documents=[row[2] for row in rows],
+            embeddings=[_embedding_from_text(row[3]) for row in rows],
+        )
     return _result([row[0] for row in rows], metadatas=[row[1] or {} for row in rows])
 
 

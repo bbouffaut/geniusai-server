@@ -31,6 +31,7 @@ GET_RESERVED_FIELDS = {
     "sort",
     "direction",
     "return_metadata",
+    "include_embedding",
 }
 
 GET_MULTI_VALUE_FIELDS = {
@@ -300,7 +301,7 @@ def _photo_matches_filters(uuid, metadata, filters):
     return True
 
 
-def _build_photo_response(uuid, metadata_dict):
+def _build_photo_response(uuid, metadata_dict, document=None, embedding=None):
     metadata_dict = dict(metadata_dict or {})
     quality_fields = {}
     metadata_fields = {}
@@ -348,7 +349,7 @@ def _build_photo_response(uuid, metadata_dict):
             ai_model or metadata_dict.get("model"),
         )
 
-    return {
+    response = {
         "uuid": uuid,
         "filename": filename,
         "provider": provider,
@@ -359,25 +360,55 @@ def _build_photo_response(uuid, metadata_dict):
         "quality": quality_fields,
     }
 
+    if document is not None or embedding is not None:
+        response["document"] = document
+        response["embedding"] = embedding
 
-def _fetch_photo_records(requested_uuids=None):
+    return response
+
+
+def _fetch_photo_records(requested_uuids=None, include_embedding=False):
     if hasattr(postgre_service, "get_image_metadatas"):
         if requested_uuids:
-            raw_data = postgre_service.get_image_metadatas(ids=requested_uuids)
+            if include_embedding:
+                raw_data = postgre_service.get_image_metadatas(ids=requested_uuids, include_embedding=True)
+            else:
+                raw_data = postgre_service.get_image_metadatas(ids=requested_uuids)
             ids = raw_data.get("ids", []) if isinstance(raw_data, dict) else []
             metadatas = raw_data.get("metadatas", []) if isinstance(raw_data, dict) else []
+            documents = raw_data.get("documents") if isinstance(raw_data, dict) else None
+            embeddings = raw_data.get("embeddings") if isinstance(raw_data, dict) else None
 
             metadata_by_uuid = {}
+            doc_by_uuid = {}
+            emb_by_uuid = {}
             for index, photo_uuid in enumerate(ids):
                 metadata_by_uuid[photo_uuid] = metadatas[index] if index < len(metadatas) and metadatas[index] else {}
+                doc_by_uuid[photo_uuid] = documents[index] if documents and index < len(documents) else None
+                emb_by_uuid[photo_uuid] = embeddings[index] if embeddings and index < len(embeddings) else None
 
             ordered_ids = [photo_uuid for photo_uuid in requested_uuids if photo_uuid in metadata_by_uuid]
-            return ordered_ids, [metadata_by_uuid[photo_uuid] for photo_uuid in ordered_ids]
+            return (
+                ordered_ids,
+                [metadata_by_uuid[photo_uuid] for photo_uuid in ordered_ids],
+                [doc_by_uuid[photo_uuid] for photo_uuid in ordered_ids],
+                [emb_by_uuid[photo_uuid] for photo_uuid in ordered_ids],
+            )
 
-        raw_data = postgre_service.get_image_metadatas()
+        if include_embedding:
+            raw_data = postgre_service.get_image_metadatas(include_embedding=True)
+        else:
+            raw_data = postgre_service.get_image_metadatas()
         ids = raw_data.get("ids", []) if isinstance(raw_data, dict) else []
         metadatas = raw_data.get("metadatas", []) if isinstance(raw_data, dict) else []
-        return ids, metadatas
+        documents = raw_data.get("documents") if isinstance(raw_data, dict) else None
+        embeddings = raw_data.get("embeddings") if isinstance(raw_data, dict) else None
+        return (
+            ids,
+            metadatas,
+            documents or [None] * len(ids),
+            embeddings or [None] * len(ids),
+        )
 
     candidate_ids = requested_uuids
     if not candidate_ids and hasattr(postgre_service, "get_all_image_ids"):
@@ -385,6 +416,8 @@ def _fetch_photo_records(requested_uuids=None):
 
     ids = []
     metadatas = []
+    documents = []
+    embeddings = []
     for photo_uuid in candidate_ids:
         photo_data = postgre_service.get_image(photo_uuid)
         if not photo_data or not photo_data.get("ids"):
@@ -392,8 +425,10 @@ def _fetch_photo_records(requested_uuids=None):
 
         ids.append(photo_uuid)
         metadatas.append(photo_data.get("metadatas", [{}])[0] if photo_data.get("metadatas") else {})
+        documents.append(photo_data.get("documents", [None])[0] if include_embedding else None)
+        embeddings.append(photo_data.get("embeddings", [None])[0] if include_embedding else None)
 
-    return ids, metadatas
+    return ids, metadatas, documents, embeddings
 
 
 def get_photos(data=None):
@@ -403,9 +438,14 @@ def get_photos(data=None):
     if not isinstance(data, dict):
         raise ValueError("Request body must be a JSON object")
 
+    include_embedding = _coerce_bool(data.get("include_embedding")) or False
+
     filters = extract_get_filters(data)
     requested_uuids = extract_requested_uuids(filters)
-    ids, metadatas = _fetch_photo_records(requested_uuids or None)
+    ids, metadatas, documents, embeddings = _fetch_photo_records(
+        requested_uuids or None,
+        include_embedding=include_embedding,
+    )
 
     photos = []
     for index, photo_uuid in enumerate(ids):
@@ -413,7 +453,14 @@ def get_photos(data=None):
         if not _photo_matches_filters(photo_uuid, metadata_dict, filters):
             continue
 
-        photos.append(_build_photo_response(photo_uuid, metadata_dict))
+        document = documents[index] if documents and index < len(documents) else None
+        embedding = embeddings[index] if embeddings and index < len(embeddings) else None
+        photos.append(_build_photo_response(
+            photo_uuid,
+            metadata_dict,
+            document=document if include_embedding else None,
+            embedding=embedding if include_embedding else None,
+        ))
 
     logger.info(f"Returning {len(photos)} photo record(s) for applied filters")
     return {
