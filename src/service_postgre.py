@@ -662,7 +662,7 @@ def _upsert_record(uuid, metadata, embedding=None, document=None, update_embeddi
                     ON CONFLICT (uuid) DO UPDATE SET
                         metadata = EXCLUDED.metadata,
                         document = COALESCE(EXCLUDED.document, photo_metadata.document),
-                        embedding = EXCLUDED.embedding,
+                        embedding = COALESCE(EXCLUDED.embedding, photo_metadata.embedding),
                         {norm_set_clauses},
                         updated_at = now()
                     """
@@ -697,7 +697,7 @@ def _upsert_record(uuid, metadata, embedding=None, document=None, update_embeddi
 def add_image(uuid, embedding, metadata, document=None):
     _ensure_initialized()
     try:
-        _upsert_record(uuid, metadata, embedding=embedding, document=document, update_embedding=True)
+        _upsert_record(uuid, metadata, embedding=embedding, document=document, update_embedding=embedding is not None)
         logger.debug(f"image {uuid} is well UPSERTED in PostgreSQL. Metadata = {metadata}")
     except Exception as e:
         logger.error(

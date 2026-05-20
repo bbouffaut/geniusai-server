@@ -271,3 +271,32 @@ def test_upsert_record_sends_normalized_columns(monkeypatch):
     assert param_dict["camera_make"] == "Nikon"
     assert param_dict["camera_model"] == "D850"
     assert param_dict["lens"] == "NIKKOR 50mm"
+
+    # embedding and document must appear in params (not silently dropped)
+    assert "metadata text" in captured["params"]
+    assert any(isinstance(p, str) and p.startswith("[") for p in captured["params"])
+
+
+def test_add_image_with_no_embedding_does_not_use_update_embedding_branch(monkeypatch):
+    service_postgre = _install_postgre_config(monkeypatch)
+    captured = {}
+
+    class FakeConnection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def execute(self, query, params):
+            captured["query"] = str(query)
+            captured["params"] = params
+
+    monkeypatch.setattr(service_postgre, "_connect_to_target", lambda: FakeConnection())
+    monkeypatch.setattr(service_postgre, "_ensure_initialized", lambda: None)
+
+    service_postgre.add_image("photo-a", None, {"filename": "a.jpg"}, document=None)
+
+    # When embedding is None, add_image must NOT include `embedding` in the INSERT
+    # (update_embedding=False path), so an existing embedding in the DB is preserved
+    assert "embedding" not in captured["query"]

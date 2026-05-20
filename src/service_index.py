@@ -479,8 +479,7 @@ def process_image_task(
                     else:
                         embedding = server_lifecycle.embed_document(document)
                         if embedding is None:
-                            logger.error(f"Metadata embedding generation failed for {uuid}. Storing metadata without embedding.")
-                            document = None
+                            logger.error(f"Metadata embedding generation failed for {uuid}. Storing metadata and document without embedding.")
 
                     if embedding is not None:
                         main_metadata["metadata_search_text"] = document
