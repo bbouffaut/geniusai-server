@@ -304,13 +304,22 @@ def process_image_task(
 
         all_uuids = {uuid for _, uuid, _ in image_triplets}
 
-        analysis_service = get_analysis_service()
-        _, _datetimes, metadata_results, ratings = analysis_service.analyze_batch(
-            image_triplets, options, None, None,
-            set(),
-            all_uuids if compute_metadata else set(),
-            all_uuids if compute_quality else set(),
-        )
+        metadata_results = None
+        ratings = None
+        if compute_metadata or compute_quality:
+            try:
+                analysis_service = get_analysis_service()
+                _, _datetimes, metadata_results, ratings = analysis_service.analyze_batch(
+                    image_triplets, options, None, None,
+                    set(),
+                    all_uuids if compute_metadata else set(),
+                    all_uuids if compute_quality else set(),
+                )
+            except Exception as e:
+                logger.error(
+                    f"Analysis batch failed — storing base metadata without LLM results: {e}",
+                    exc_info=True,
+                )
 
         for i, (_image_bytes, uuid, filename) in enumerate(image_triplets):
             try:
