@@ -24,8 +24,11 @@ _initialized = False
 NORMALIZED_METADATA_COLUMNS = [
     ("capture_time", "TIMESTAMP"),
     ("aperture_f_number", "DOUBLE PRECISION"),
+    ("shutter_speed", "DOUBLE PRECISION"),
+    ("exposure_bias", "DOUBLE PRECISION"),
     ("iso", "INTEGER"),
     ("focal_length_mm", "DOUBLE PRECISION"),
+    ("focal_length_35mm", "DOUBLE PRECISION"),
     ("camera_make", "TEXT"),
     ("camera_model", "TEXT"),
     ("lens", "TEXT"),
@@ -42,6 +45,11 @@ CAPTURE_TIME_METADATA_PATHS = [
     ["exif", "date_time_original"],
     ["exif", "CreateDate"],
     ["exif", "create_date"],
+    # Lightroom classic catalog format
+    ["exif", "all_raw", "dateTimeOriginalISO8601"],
+    ["exif", "raw", "dateTimeOriginalISO8601"],
+    ["exif", "all_raw", "dateTimeISO8601"],
+    ["exif", "raw", "dateTimeISO8601"],
 ]
 
 APERTURE_METADATA_PATHS = [
@@ -59,6 +67,9 @@ APERTURE_METADATA_PATHS = [
     ["exif", "fstop"],
     ["exif", "FNumber"],
     ["exif", "Aperture"],
+    # Lightroom classic catalog format (numeric value in all_raw/raw)
+    ["exif", "all_raw", "aperture"],
+    ["exif", "raw", "aperture"],
 ]
 
 APERTURE_VALUE_METADATA_PATHS = [
@@ -76,6 +87,9 @@ ISO_METADATA_PATHS = [
     ["exif", "ISOSpeedRatings"],
     ["exif", "iso_speed_rating"],
     ["exif", "iso_speed_ratings"],
+    # Lightroom classic catalog format
+    ["exif", "all_raw", "isoSpeedRating"],
+    ["exif", "raw", "isoSpeedRating"],
 ]
 
 FOCAL_LENGTH_METADATA_PATHS = [
@@ -84,6 +98,37 @@ FOCAL_LENGTH_METADATA_PATHS = [
     ["exif", "focal_length_mm"],
     ["exif", "focal_length"],
     ["exif", "FocalLength"],
+    # Lightroom classic catalog format
+    ["exif", "all_raw", "focalLength"],
+    ["exif", "raw", "focalLength"],
+]
+
+FOCAL_LENGTH_35MM_METADATA_PATHS = [
+    ["focal_length_35mm"],
+    ["focalLength35mm"],
+    ["exif", "FocalLengthIn35mmFilm"],
+    # Lightroom classic catalog format
+    ["exif", "all_raw", "focalLength35mm"],
+    ["exif", "raw", "focalLength35mm"],
+]
+
+SHUTTER_SPEED_METADATA_PATHS = [
+    ["shutter_speed"],
+    ["shutterSpeed"],
+    ["exif", "ExposureTime"],
+    ["exif", "ShutterSpeedValue"],
+    # Lightroom classic catalog format (value in seconds as float)
+    ["exif", "all_raw", "shutterSpeed"],
+    ["exif", "raw", "shutterSpeed"],
+]
+
+EXPOSURE_BIAS_METADATA_PATHS = [
+    ["exposure_bias"],
+    ["exposureBias"],
+    ["exif", "ExposureBiasValue"],
+    # Lightroom classic catalog format
+    ["exif", "all_raw", "exposureBias"],
+    ["exif", "raw", "exposureBias"],
 ]
 
 CAMERA_MAKE_METADATA_PATHS = [
@@ -92,6 +137,9 @@ CAMERA_MAKE_METADATA_PATHS = [
     ["exif", "camera_make"],
     ["exif", "make"],
     ["exif", "Make"],
+    # Lightroom classic catalog format
+    ["exif", "all_formatted", "cameraMake"],
+    ["exif", "formatted", "cameraMake"],
 ]
 
 CAMERA_MODEL_METADATA_PATHS = [
@@ -101,6 +149,9 @@ CAMERA_MODEL_METADATA_PATHS = [
     ["exif", "camera"],
     ["exif", "model"],
     ["exif", "Model"],
+    # Lightroom classic catalog format
+    ["exif", "all_formatted", "cameraModel"],
+    ["exif", "formatted", "cameraModel"],
 ]
 
 LENS_METADATA_PATHS = [
@@ -110,6 +161,11 @@ LENS_METADATA_PATHS = [
     ["exif", "lens_model"],
     ["exif", "Lens"],
     ["exif", "LensModel"],
+    # Lightroom classic catalog format
+    ["exif", "all_raw", "lens"],
+    ["exif", "raw", "lens"],
+    ["exif", "all_formatted", "lens"],
+    ["exif", "formatted", "lens"],
 ]
 
 GPS_LATITUDE_METADATA_PATHS = [
@@ -365,8 +421,11 @@ def _extract_normalized_metadata(metadata):
     return {
         "capture_time": _coerce_capture_time(_first_metadata_value(metadata, CAPTURE_TIME_METADATA_PATHS)),
         "aperture_f_number": _coerce_aperture_f_number(metadata),
+        "shutter_speed": _coerce_float(_first_metadata_value(metadata, SHUTTER_SPEED_METADATA_PATHS)),
+        "exposure_bias": _coerce_float(_first_metadata_value(metadata, EXPOSURE_BIAS_METADATA_PATHS)),
         "iso": _coerce_int(_first_metadata_value(metadata, ISO_METADATA_PATHS)),
         "focal_length_mm": _coerce_float(_first_metadata_value(metadata, FOCAL_LENGTH_METADATA_PATHS)),
+        "focal_length_35mm": _coerce_float(_first_metadata_value(metadata, FOCAL_LENGTH_35MM_METADATA_PATHS)),
         "camera_make": _coerce_text(_first_metadata_value(metadata, CAMERA_MAKE_METADATA_PATHS)),
         "camera_model": _coerce_text(_first_metadata_value(metadata, CAMERA_MODEL_METADATA_PATHS)),
         "lens": _coerce_text(_first_metadata_value(metadata, LENS_METADATA_PATHS)),
@@ -380,34 +439,35 @@ def _has_normalized_metadata_value(normalized_metadata):
 
 
 def _backfill_normalized_metadata_columns(conn):
+    null_checks = sql.SQL(" OR ").join(
+        sql.SQL("{col} IS NULL").format(col=sql.Identifier(col))
+        for col in NORMALIZED_METADATA_COLUMN_NAMES
+    )
     rows = conn.execute(
-        """
-        SELECT uuid, metadata
-        FROM photo_metadata
-        WHERE (
-            metadata ? 'exif'
-            OR metadata ? 'metadata'
-            OR metadata ? 'capture_time'
-            OR metadata ? 'aperture'
-            OR metadata ? 'aperture_f_number'
-            OR metadata ? 'iso'
-            OR metadata ? 'focal_length'
-            OR metadata ? 'focal_length_mm'
-            OR metadata ? 'gps'
-        )
-        AND (
-            capture_time IS NULL
-            OR aperture_f_number IS NULL
-            OR iso IS NULL
-            OR focal_length_mm IS NULL
-            OR camera_make IS NULL
-            OR camera_model IS NULL
-            OR lens IS NULL
-            OR gps_latitude IS NULL
-            OR gps_longitude IS NULL
-        )
-        """
+        sql.SQL(
+            """
+            SELECT uuid, metadata
+            FROM photo_metadata
+            WHERE (
+                metadata ? 'exif'
+                OR metadata ? 'metadata'
+                OR metadata ? 'capture_time'
+                OR metadata ? 'aperture'
+                OR metadata ? 'aperture_f_number'
+                OR metadata ? 'iso'
+                OR metadata ? 'focal_length'
+                OR metadata ? 'focal_length_mm'
+                OR metadata ? 'gps'
+            )
+            AND ({null_checks})
+            """
+        ).format(null_checks=null_checks)
     ).fetchall()
+
+    set_clauses = sql.SQL(", ").join(
+        sql.SQL("{col} = COALESCE(%s, {col})").format(col=sql.Identifier(col))
+        for col in NORMALIZED_METADATA_COLUMN_NAMES
+    )
 
     backfilled_count = 0
     for uuid, metadata in rows:
@@ -415,33 +475,12 @@ def _backfill_normalized_metadata_columns(conn):
         if not _has_normalized_metadata_value(normalized_metadata):
             continue
 
+        normalized_values = [normalized_metadata[col] for col in NORMALIZED_METADATA_COLUMN_NAMES]
         conn.execute(
-            """
-            UPDATE photo_metadata
-            SET
-                capture_time = COALESCE(%s, capture_time),
-                aperture_f_number = COALESCE(%s, aperture_f_number),
-                iso = COALESCE(%s, iso),
-                focal_length_mm = COALESCE(%s, focal_length_mm),
-                camera_make = COALESCE(%s, camera_make),
-                camera_model = COALESCE(%s, camera_model),
-                lens = COALESCE(%s, lens),
-                gps_latitude = COALESCE(%s, gps_latitude),
-                gps_longitude = COALESCE(%s, gps_longitude)
-            WHERE uuid = %s
-            """,
-            (
-                normalized_metadata["capture_time"],
-                normalized_metadata["aperture_f_number"],
-                normalized_metadata["iso"],
-                normalized_metadata["focal_length_mm"],
-                normalized_metadata["camera_make"],
-                normalized_metadata["camera_model"],
-                normalized_metadata["lens"],
-                normalized_metadata["gps_latitude"],
-                normalized_metadata["gps_longitude"],
-                uuid,
+            sql.SQL("UPDATE photo_metadata SET {set_clauses} WHERE uuid = %s").format(
+                set_clauses=set_clauses,
             ),
+            (*normalized_values, uuid),
         )
         backfilled_count += 1
 
@@ -604,58 +643,53 @@ def _upsert_record(uuid, metadata, embedding=None, document=None, update_embeddi
     embedding_value = _embedding_literal(embedding)
     metadata = metadata or {}
     normalized_metadata = _extract_normalized_metadata(metadata)
-    normalized_values = [normalized_metadata[column_name] for column_name in NORMALIZED_METADATA_COLUMN_NAMES]
+    normalized_values = [normalized_metadata[col] for col in NORMALIZED_METADATA_COLUMN_NAMES]
+
+    norm_cols = sql.SQL(", ").join(sql.Identifier(col) for col in NORMALIZED_METADATA_COLUMN_NAMES)
+    norm_placeholders = sql.SQL(", ").join(sql.SQL("%s") for _ in NORMALIZED_METADATA_COLUMN_NAMES)
+    norm_set_clauses = sql.SQL(", ").join(
+        sql.SQL("{col} = EXCLUDED.{col}").format(col=sql.Identifier(col))
+        for col in NORMALIZED_METADATA_COLUMN_NAMES
+    )
 
     with _connect_to_target() as conn:
         if update_embedding:
             conn.execute(
-                """
-                INSERT INTO photo_metadata (
-                    uuid, metadata, document, embedding,
-                    capture_time, aperture_f_number, iso, focal_length_mm,
-                    camera_make, camera_model, lens, gps_latitude, gps_longitude
-                )
-                VALUES (%s, %s, %s, %s::vector, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (uuid) DO UPDATE SET
-                    metadata = EXCLUDED.metadata,
-                    document = COALESCE(EXCLUDED.document, photo_metadata.document),
-                    embedding = EXCLUDED.embedding,
-                    capture_time = EXCLUDED.capture_time,
-                    aperture_f_number = EXCLUDED.aperture_f_number,
-                    iso = EXCLUDED.iso,
-                    focal_length_mm = EXCLUDED.focal_length_mm,
-                    camera_make = EXCLUDED.camera_make,
-                    camera_model = EXCLUDED.camera_model,
-                    lens = EXCLUDED.lens,
-                    gps_latitude = EXCLUDED.gps_latitude,
-                    gps_longitude = EXCLUDED.gps_longitude,
-                    updated_at = now()
-                """,
+                sql.SQL(
+                    """
+                    INSERT INTO photo_metadata (uuid, metadata, document, embedding, {norm_cols})
+                    VALUES (%s, %s, %s, %s::vector, {norm_placeholders})
+                    ON CONFLICT (uuid) DO UPDATE SET
+                        metadata = EXCLUDED.metadata,
+                        document = COALESCE(EXCLUDED.document, photo_metadata.document),
+                        embedding = EXCLUDED.embedding,
+                        {norm_set_clauses},
+                        updated_at = now()
+                    """
+                ).format(
+                    norm_cols=norm_cols,
+                    norm_placeholders=norm_placeholders,
+                    norm_set_clauses=norm_set_clauses,
+                ),
                 (uuid, Jsonb(metadata), document, embedding_value, *normalized_values),
             )
         else:
             conn.execute(
-                """
-                INSERT INTO photo_metadata (
-                    uuid, metadata, document,
-                    capture_time, aperture_f_number, iso, focal_length_mm,
-                    camera_make, camera_model, lens, gps_latitude, gps_longitude
-                )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (uuid) DO UPDATE SET
-                    metadata = EXCLUDED.metadata,
-                    document = COALESCE(EXCLUDED.document, photo_metadata.document),
-                    capture_time = EXCLUDED.capture_time,
-                    aperture_f_number = EXCLUDED.aperture_f_number,
-                    iso = EXCLUDED.iso,
-                    focal_length_mm = EXCLUDED.focal_length_mm,
-                    camera_make = EXCLUDED.camera_make,
-                    camera_model = EXCLUDED.camera_model,
-                    lens = EXCLUDED.lens,
-                    gps_latitude = EXCLUDED.gps_latitude,
-                    gps_longitude = EXCLUDED.gps_longitude,
-                    updated_at = now()
-                """,
+                sql.SQL(
+                    """
+                    INSERT INTO photo_metadata (uuid, metadata, document, {norm_cols})
+                    VALUES (%s, %s, %s, {norm_placeholders})
+                    ON CONFLICT (uuid) DO UPDATE SET
+                        metadata = EXCLUDED.metadata,
+                        document = COALESCE(EXCLUDED.document, photo_metadata.document),
+                        {norm_set_clauses},
+                        updated_at = now()
+                    """
+                ).format(
+                    norm_cols=norm_cols,
+                    norm_placeholders=norm_placeholders,
+                    norm_set_clauses=norm_set_clauses,
+                ),
                 (uuid, Jsonb(metadata), document, *normalized_values),
             )
 

@@ -25,3 +25,8 @@ dependencies = [
 
 [tool.uv]
 python-preference = "only-system"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]

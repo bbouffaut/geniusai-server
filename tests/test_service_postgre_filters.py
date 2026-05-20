@@ -88,14 +88,56 @@ def test_extract_normalized_metadata_for_storage(monkeypatch):
     assert normalized == {
         "capture_time": datetime(2026, 5, 20, 10, 30, 0),
         "aperture_f_number": 2.8,
+        "shutter_speed": None,
+        "exposure_bias": None,
         "iso": 200,
         "focal_length_mm": 50.0,
+        "focal_length_35mm": None,
         "camera_make": "Nikon",
         "camera_model": "D850",
         "lens": "NIKKOR 50mm",
         "gps_latitude": 45.899,
         "gps_longitude": 6.129,
     }
+
+
+def test_extract_normalized_metadata_accepts_lightroom_exif_format(monkeypatch):
+    service_postgre = _install_postgre_config(monkeypatch)
+
+    normalized = service_postgre._extract_normalized_metadata(
+        {
+            "capture_time": "2026-04-25T19:15:03+01:00",
+            "exif": {
+                "capture_time": "2026-04-25T19:15:03+01:00",
+                "all_raw": {
+                    "aperture": 1.8,
+                    "isoSpeedRating": 100,
+                    "focalLength": 50,
+                    "focalLength35mm": 50,
+                    "shutterSpeed": 0.0008,
+                    "exposureBias": -0.7,
+                    "lens": "FE 50mm F1.8",
+                },
+                "all_formatted": {
+                    "cameraMake": "Sony",
+                    "cameraModel": "ILCE-7M3",
+                },
+            },
+        }
+    )
+
+    assert normalized["capture_time"] == datetime(2026, 4, 25, 18, 15, 3)  # UTC
+    assert normalized["aperture_f_number"] == 1.8
+    assert normalized["shutter_speed"] == 0.0008
+    assert normalized["exposure_bias"] == -0.7
+    assert normalized["iso"] == 100
+    assert normalized["focal_length_mm"] == 50.0
+    assert normalized["focal_length_35mm"] == 50.0
+    assert normalized["camera_make"] == "Sony"
+    assert normalized["camera_model"] == "ILCE-7M3"
+    assert normalized["lens"] == "FE 50mm F1.8"
+    assert normalized["gps_latitude"] is None
+    assert normalized["gps_longitude"] is None
 
 
 def test_extract_normalized_metadata_accepts_loose_exif_keys(monkeypatch):
@@ -193,28 +235,39 @@ def test_upsert_record_sends_normalized_columns(monkeypatch):
         {
             "capture_time": "2026-05-20 10:30:00",
             "exif": {
-                "FNumber": "f/2.8",
-                "ISO": "200",
-                "FocalLength": "50 mm",
-                "Make": "Nikon",
-                "Model": "D850",
-                "LensModel": "NIKKOR 50mm",
-                "GPSLatitude": "45.899",
-                "GPSLongitude": "6.129",
+                "capture_time": "2026-05-20T10:30:00",
+                "all_raw": {
+                    "aperture": 2.8,
+                    "isoSpeedRating": 200,
+                    "focalLength": 50,
+                    "focalLength35mm": 75,
+                    "shutterSpeed": 0.001,
+                    "exposureBias": -0.7,
+                    "lens": "NIKKOR 50mm",
+                    "GPSLatitude": "45.899",
+                    "GPSLongitude": "6.129",
+                },
+                "all_formatted": {
+                    "cameraMake": "Nikon",
+                    "cameraModel": "D850",
+                },
             },
         },
         embedding=[1.0, 0.0],
         document="metadata text",
     )
 
-    assert captured["params"][-9:] == (
-        datetime(2026, 5, 20, 10, 30, 0),
-        2.8,
-        200,
-        50.0,
-        "Nikon",
-        "D850",
-        "NIKKOR 50mm",
-        45.899,
-        6.129,
-    )
+    n = len(service_postgre.NORMALIZED_METADATA_COLUMN_NAMES)
+    norm_params = captured["params"][-n:]
+    param_dict = dict(zip(service_postgre.NORMALIZED_METADATA_COLUMN_NAMES, norm_params))
+
+    assert param_dict["capture_time"] == datetime(2026, 5, 20, 10, 30, 0)
+    assert param_dict["aperture_f_number"] == 2.8
+    assert param_dict["shutter_speed"] == 0.001
+    assert param_dict["exposure_bias"] == -0.7
+    assert param_dict["iso"] == 200
+    assert param_dict["focal_length_mm"] == 50.0
+    assert param_dict["focal_length_35mm"] == 75.0
+    assert param_dict["camera_make"] == "Nikon"
+    assert param_dict["camera_model"] == "D850"
+    assert param_dict["lens"] == "NIKKOR 50mm"
