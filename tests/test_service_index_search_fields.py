@@ -413,3 +413,153 @@ def test_process_image_task_stores_metadata_when_embedding_generation_fails(monk
     assert records["photo-1"]["has_embedding"] is False
     assert records["photo-1"]["exif"]["FNumber"] == "2.8"
     assert "metadata_search_text" not in records["photo-1"]
+
+
+def test_process_image_task_stores_document_when_embedding_generation_fails(monkeypatch):
+    """After embed_document fails the document text must still be stored (for future re-embedding)."""
+    fake_config = types.ModuleType("config")
+    fake_config.TEXT_EMBEDDING_MODEL_ID = "text-model"
+    fake_config.logger = _make_logger()
+
+    stored_calls = []
+
+    fake_postgre_service = types.ModuleType("service_postgre")
+    stored_records = {}
+
+    def fake_get_image(uuid):
+        if uuid not in stored_records:
+            return None
+        return {"ids": [uuid], "metadatas": [stored_records[uuid]]}
+
+    def fake_update_image(uuid, metadata, embedding=None, document=None):
+        stored_records[uuid] = metadata.copy()
+        stored_calls.append({"uuid": uuid, "embedding": embedding, "document": document})
+
+    fake_postgre_service.get_image = fake_get_image
+    fake_postgre_service.update_image = fake_update_image
+    fake_postgre_service.add_image = lambda uuid, embedding, metadata, document=None: fake_update_image(
+        uuid, metadata, embedding=embedding, document=document
+    )
+
+    fake_server_lifecycle = types.ModuleType("server_lifecycle")
+    fake_server_lifecycle.embed_document = lambda document: None  # always fails
+
+    class FakeAnalysisService:
+        def analyze_batch(self, image_triplets, options, _image_model=None, _image_processor=None,
+                          uuids_needing_embeddings=None, uuids_needing_metadata=None, uuids_needing_quality=None):
+            metadata_result = types.SimpleNamespace(
+                success=True,
+                title="Mountain",
+                caption="A mountain view",
+                alt_text=None,
+                keywords={"Keywords": ["mountain"]},
+            )
+            return None, {}, [metadata_result], None
+
+    fake_service_metadata = types.ModuleType("service_metadata")
+    fake_service_metadata.get_analysis_service = lambda: FakeAnalysisService()
+
+    monkeypatch.setitem(sys.modules, "config", fake_config)
+    monkeypatch.setitem(sys.modules, "service_postgre", fake_postgre_service)
+    monkeypatch.setitem(sys.modules, "server_lifecycle", fake_server_lifecycle)
+    monkeypatch.setitem(sys.modules, "service_metadata", fake_service_metadata)
+
+    sys.modules.pop("service_index", None)
+    service_index = importlib.import_module("service_index")
+
+    success_count, failure_count = service_index.process_image_task(
+        [(b"fake-image", "photo-1", "alpha.jpg")],
+        options={
+            "provider": "ollama",
+            "model": "gpt-4o",
+            "capture_time": "2026-05-02 12:34:56",
+            "compute_embeddings": True,
+            "compute_metadata": True,
+            "compute_quality": False,
+            "regenerate_metadata": True,
+        },
+    )
+
+    assert success_count == 1
+    assert failure_count == 0
+    assert stored_records["photo-1"]["has_embedding"] is False
+
+    # The document text must be passed to update_image even when embedding fails,
+    # so it can be stored for future re-embedding.
+    final_call = stored_calls[-1]
+    assert final_call["document"] is not None, "document must be preserved when embed_document fails"
+    assert "mountain" in final_call["document"].lower() or "filename" in final_call["document"].lower()
+
+
+def test_process_image_task_stores_embedding_and_document_on_success(monkeypatch):
+    """When embed_document returns a valid vector, both embedding and document must be stored."""
+    fake_config = types.ModuleType("config")
+    fake_config.TEXT_EMBEDDING_MODEL_ID = "text-model"
+    fake_config.logger = _make_logger()
+
+    stored_calls = []
+
+    fake_postgre_service = types.ModuleType("service_postgre")
+    stored_records = {}
+
+    def fake_get_image(uuid):
+        if uuid not in stored_records:
+            return None
+        return {"ids": [uuid], "metadatas": [stored_records[uuid]]}
+
+    def fake_update_image(uuid, metadata, embedding=None, document=None):
+        stored_records[uuid] = metadata.copy()
+        stored_calls.append({"uuid": uuid, "embedding": embedding, "document": document})
+
+    fake_postgre_service.get_image = fake_get_image
+    fake_postgre_service.update_image = fake_update_image
+    fake_postgre_service.add_image = lambda uuid, embedding, metadata, document=None: fake_update_image(
+        uuid, metadata, embedding=embedding, document=document
+    )
+
+    fake_server_lifecycle = types.ModuleType("server_lifecycle")
+    fake_server_lifecycle.embed_document = lambda document: [0.1, 0.2, 0.3]  # valid vector
+
+    class FakeAnalysisService:
+        def analyze_batch(self, image_triplets, options, _image_model=None, _image_processor=None,
+                          uuids_needing_embeddings=None, uuids_needing_metadata=None, uuids_needing_quality=None):
+            metadata_result = types.SimpleNamespace(
+                success=True,
+                title="Sunset",
+                caption="A sunset over the sea",
+                alt_text=None,
+                keywords={"Keywords": ["sea", "sunset"]},
+            )
+            return None, {}, [metadata_result], None
+
+    fake_service_metadata = types.ModuleType("service_metadata")
+    fake_service_metadata.get_analysis_service = lambda: FakeAnalysisService()
+
+    monkeypatch.setitem(sys.modules, "config", fake_config)
+    monkeypatch.setitem(sys.modules, "service_postgre", fake_postgre_service)
+    monkeypatch.setitem(sys.modules, "server_lifecycle", fake_server_lifecycle)
+    monkeypatch.setitem(sys.modules, "service_metadata", fake_service_metadata)
+
+    sys.modules.pop("service_index", None)
+    service_index = importlib.import_module("service_index")
+
+    success_count, failure_count = service_index.process_image_task(
+        [(b"fake-image", "photo-1", "alpha.jpg")],
+        options={
+            "provider": "ollama",
+            "model": "gpt-4o",
+            "capture_time": "2026-05-02 12:34:56",
+            "compute_embeddings": True,
+            "compute_metadata": True,
+            "compute_quality": False,
+            "regenerate_metadata": True,
+        },
+    )
+
+    assert success_count == 1
+    assert failure_count == 0
+    assert stored_records["photo-1"]["has_embedding"] is True
+
+    final_call = stored_calls[-1]
+    assert final_call["embedding"] == [0.1, 0.2, 0.3], "embedding must be passed to update_image"
+    assert final_call["document"] is not None, "document must be passed to update_image"
