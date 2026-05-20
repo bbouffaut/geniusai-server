@@ -390,11 +390,18 @@ def process_image_task(
 
                 main_metadata['has_embedding'] = embedding is not None
 
+                logger.info(
+                    f"Processing done for {uuid}: "
+                    f"metadata_ok={metadata_data is not None and metadata_data.success if metadata_data else False}, "
+                    f"quality_ok={rating_data is not None and rating_data.success if rating_data else False}, "
+                    f"embedding={'yes' if embedding is not None else 'no'}, "
+                    f"document={'yes' if document else 'no'}"
+                )
                 postgre_service.add_image(uuid, embedding, main_metadata, document=document)
                 success_count += 1
 
             except Exception as e:
-                logger.error(f"Error processing image {uuid}: {str(e)}", exc_info=True)
+                logger.error(f"FAILED to process image {uuid}: {str(e)}", exc_info=True)
                 failure_count += 1
 
         return success_count, failure_count

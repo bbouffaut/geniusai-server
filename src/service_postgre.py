@@ -699,12 +699,13 @@ def _upsert_record(uuid, metadata, embedding=None, document=None, update_embeddi
 
 def add_image(uuid, embedding, metadata, document=None):
     _ensure_initialized()
+    logger.info(f"Saving image {uuid} to PostgreSQL (embedding={embedding is not None}, document={'yes' if document else 'no'})")
     try:
         _upsert_record(uuid, metadata, embedding=embedding, document=document, update_embedding=embedding is not None)
-        logger.debug(f"image {uuid} is well UPSERTED in PostgreSQL. Metadata = {metadata}")
+        logger.info(f"Image {uuid} saved successfully to PostgreSQL.")
     except Exception as e:
         logger.error(
-            f"Failed to add image {uuid} to PostgreSQL (embedding provided: {embedding is not None}): {e}",
+            f"FAILED to save image {uuid} to PostgreSQL (embedding provided: {embedding is not None}): {e}",
             exc_info=True,
         )
         raise
