@@ -157,14 +157,11 @@ def _merge_additional_metadata(base_metadata, additional_metadata):
         base_metadata[key] = value
 
 
-def _build_base_metadata(uuid, filename, options, extra_metadata=None, existing=None):
-    if existing:
-        main_metadata = existing.copy()
-    else:
-        main_metadata = {
-            "provider": options.get("provider") if options else None,
-            "model": options.get("model") if options else None,
-        }
+def _build_base_metadata(uuid, filename, options, extra_metadata=None):
+    main_metadata = {
+        "provider": options.get("provider") if options else None,
+        "model": options.get("model") if options else None,
+    }
 
     _merge_additional_metadata(main_metadata, extra_metadata)
 
@@ -174,31 +171,6 @@ def _build_base_metadata(uuid, filename, options, extra_metadata=None, existing=
     _ensure_search_fields(main_metadata, options)
     return main_metadata
 
-
-def _prestore_new_image_metadata(image_triplets, options, additional_metadata_list):
-    prestored_count = 0
-
-    for index, (_image_bytes, uuid, filename) in enumerate(image_triplets):
-        if postgre_service.get_image(uuid) is not None:
-            continue
-
-        extra_metadata = (
-            additional_metadata_list[index]
-            if additional_metadata_list is not None
-            else None
-        )
-        base_metadata = _build_base_metadata(
-            uuid,
-            filename,
-            options,
-            extra_metadata=extra_metadata,
-        )
-        base_metadata["has_embedding"] = False
-        postgre_service.update_image(uuid, base_metadata, embedding=None, document=None)
-        prestored_count += 1
-
-    if prestored_count:
-        logger.info(f"Pre-stored base metadata for {prestored_count} new photo(s) before generation.")
 
 
 _NON_SEARCHABLE_METADATA_KEYS = {
@@ -293,11 +265,14 @@ def process_image_task(
 ) -> tuple[int, int]:
     """
     Process a batch of images for indexing.
-    
+
+    Builds metadata, runs LLM analysis and embedding generation, then stores
+    each record exactly once (UPSERT). No pre-storing, no multi-stage updates.
+
     Args:
         image_triplets: List of (image_bytes, uuid, filename) tuples
-        options: Dictionary with all processing options
-        
+        options: Dictionary with processing options
+
     Returns:
         Tuple of (success_count, failure_count)
     """
@@ -315,7 +290,6 @@ def process_image_task(
         provider = options.get('provider')
         model_name = options.get('model')
         replace_ss = options.get('replace_ss', False)
-        regenerate_metadata = options.get('regenerate_metadata', True)
         compute_embeddings = options.get('compute_embeddings', True)
         compute_metadata = options.get('compute_metadata', False)
         compute_quality = options.get('compute_quality', True)
@@ -323,117 +297,33 @@ def process_image_task(
             compute_metadata = True
 
         logger.info(f"Starting batch processing of {total_images} images...")
-        logger.info(f"regenerate_metadata={regenerate_metadata}, compute_embeddings={compute_embeddings}, "
-                   f"compute_metadata={compute_metadata}, compute_quality={compute_quality}")
-        
-        # Check existing records if regenerate_metadata is False
-        existing_records = {}
-        if not regenerate_metadata:
-            logger.info("Checking existing records to determine what needs generation...")
-            for _, uuid, _ in image_triplets:
-                existing_record = postgre_service.get_image(uuid)
-                if existing_record and existing_record['ids']:
-                    existing_records[uuid] = existing_record['metadatas'][0] if existing_record['metadatas'] else {}
-        
-        # Determine what actually needs to be computed for each image
-        images_needing_embeddings = []
-        images_needing_metadata = []
-        images_needing_quality = []
-        
-        for _, uuid, _ in image_triplets:
-            existing = existing_records.get(uuid, {})
-            
-            # Check if embedding is needed
-            needs_embedding = compute_embeddings and (
-                regenerate_metadata
-                or not existing.get('has_embedding', False)
-                or existing.get('embedding_source') != 'metadata'
-                or existing.get('embedding_model') != TEXT_EMBEDDING_MODEL_ID
-            )
-            if needs_embedding:
-                images_needing_embeddings.append(uuid)
-            
-            # Check if metadata is needed
-            has_any_metadata = existing.get('title') or existing.get('caption') or existing.get('alt_text') or existing.get('keywords')
-            needs_metadata = compute_metadata and (regenerate_metadata or not has_any_metadata)
-            if existing and compute_metadata:
-                logger.info(f"UUID {uuid}: has_metadata={has_any_metadata}, regenerate={regenerate_metadata}, needs_metadata={needs_metadata}")
-                logger.info(f"  Existing fields: title={bool(existing.get('title'))}, caption={bool(existing.get('caption'))}, "
-                          f"alt_text={bool(existing.get('alt_text'))}, keywords={bool(existing.get('keywords'))}")
-            if needs_metadata:
-                images_needing_metadata.append(uuid)
-            
-            # Check if quality scores are needed
-            needs_quality = compute_quality and (regenerate_metadata or not existing.get('overall_score'))
-            if needs_quality:
-                images_needing_quality.append(uuid)
-        
-        logger.info(f"Generation needed: {len(images_needing_embeddings)} embeddings, "
-                   f"{len(images_needing_metadata)} metadata, {len(images_needing_quality)} quality scores")
-
-        _prestore_new_image_metadata(
-            image_triplets,
-            options,
-            additional_metadata_list,
+        logger.info(
+            f"compute_embeddings={compute_embeddings}, "
+            f"compute_metadata={compute_metadata}, compute_quality={compute_quality}"
         )
 
-        # If absolutely nothing needs to be generated, treat this as a successful no-op
-        if len(images_needing_embeddings) == 0 and len(images_needing_metadata) == 0 and len(images_needing_quality) == 0:
-            logger.info("No generation required (regenerate_metadata=False and all fields present). Returning success without changes.")
-            return len(image_triplets), 0
-        
-        analysis_service = get_analysis_service()
+        all_uuids = {uuid for _, uuid, _ in image_triplets}
 
-        # Convert lists to sets for faster lookup in analyze_batch
+        analysis_service = get_analysis_service()
         _, _datetimes, metadata_results, ratings = analysis_service.analyze_batch(
             image_triplets, options, None, None,
-            set(), set(images_needing_metadata), set(images_needing_quality)
+            set(),
+            all_uuids if compute_metadata else set(),
+            all_uuids if compute_quality else set(),
         )
 
         for i, (_image_bytes, uuid, filename) in enumerate(image_triplets):
             try:
-                embedding = None
-                rating_data = ratings[i] if ratings else None
-                metadata_data = metadata_results[i] if metadata_results else None
                 extra_metadata = (
                     additional_metadata_list[i]
                     if additional_metadata_list is not None
                     else None
                 )
-                
-                existing = existing_records.get(uuid, {})
-                
-                need_embedding = uuid in images_needing_embeddings
-                need_metadata = uuid in images_needing_metadata
-                need_quality = uuid in images_needing_quality
+                rating_data = ratings[i] if ratings else None
+                metadata_data = metadata_results[i] if metadata_results else None
 
-                # Validate that required new data was generated if needed
-                if need_quality and (not rating_data or not rating_data.success):
-                    logger.error(f"Quality rating generation failed for {uuid}. Skipping.")
-                    failure_count += 1
-                    continue
+                main_metadata = _build_base_metadata(uuid, filename, options, extra_metadata=extra_metadata)
 
-                if need_metadata and (not metadata_data or not metadata_data.success):
-                    logger.error(f"Metadata generation failed for {uuid}. Skipping.")
-                    failure_count += 1
-                    continue
-
-                # If nothing needed for this UUID (already complete) just count success and move on
-                if not need_embedding and not need_metadata and not need_quality and not regenerate_metadata:
-                    logger.info(f"UUID {uuid}: already fully indexed; skipping update.")
-                    success_count += 1
-                    continue
-
-                # Start with existing metadata if not regenerating
-                main_metadata = _build_base_metadata(
-                    uuid,
-                    filename,
-                    options,
-                    extra_metadata=extra_metadata,
-                    existing=existing.copy() if not regenerate_metadata and existing else None,
-                )
-
-                # Update quality scores if newly generated
                 if rating_data and rating_data.success:
                     main_metadata["overall_score"] = rating_data.overall_score
                     main_metadata["composition_score"] = rating_data.composition_score
@@ -444,8 +334,9 @@ def process_image_task(
                     main_metadata["quality_critique"] = rating_data.critique
                     main_metadata["provider"] = provider
                     main_metadata["model"] = model_name
+                elif compute_quality:
+                    logger.error(f"Quality rating generation failed for {uuid}.")
 
-                # Update metadata fields if newly generated
                 if metadata_data and metadata_data.success:
                     if metadata_data.title:
                         main_metadata['title'] = metadata_data.title
@@ -455,12 +346,13 @@ def process_image_task(
                         main_metadata['alt_text'] = metadata_data.alt_text
                     if metadata_data.keywords:
                         main_metadata['keywords'] = json.dumps(metadata_data.keywords)
-                        #logger.debug(f"UUID {uuid}: keywords JSON data: {main_metadata['keywords']}")
                         main_metadata['flattened_keywords'] = _flatten_keywords(metadata_data.keywords)
                     if not main_metadata.get("provider"):
                         main_metadata["provider"] = provider
                     if not main_metadata.get("model"):
                         main_metadata["model"] = model_name
+                elif compute_metadata:
+                    logger.error(f"Metadata generation failed for {uuid}.")
 
                 _store_generation_model_keyword(main_metadata)
 
@@ -470,52 +362,26 @@ def process_image_task(
                             main_metadata[key] = value.replace("ß", "ss")
 
                 document = None
-                if need_embedding:
+                embedding = None
+                if compute_embeddings:
                     document = _build_metadata_embedding_document(main_metadata)
                     if not document:
-                        logger.error(f"No metadata text available for embedding {uuid}. Storing metadata without embedding.")
-                        embedding = None
-                        document = None
+                        logger.error(f"No metadata text available for embedding {uuid}. Storing without embedding.")
                     else:
                         embedding = server_lifecycle.embed_document(document)
                         if embedding is None:
-                            logger.error(f"Metadata embedding generation failed for {uuid}. Storing metadata and document without embedding.")
+                            logger.error(
+                                f"Metadata embedding generation failed for {uuid}. "
+                                "Storing with document but without embedding."
+                            )
+                        else:
+                            main_metadata["metadata_search_text"] = document
+                            main_metadata["embedding_source"] = "metadata"
+                            main_metadata["embedding_model"] = TEXT_EMBEDDING_MODEL_ID
 
-                    if embedding is not None:
-                        main_metadata["metadata_search_text"] = document
-                        main_metadata["embedding_source"] = "metadata"
-                        main_metadata["embedding_model"] = TEXT_EMBEDDING_MODEL_ID
+                main_metadata['has_embedding'] = embedding is not None
 
-                # Update embedding status
-                if embedding is not None:
-                    main_metadata['has_embedding'] = True
-                elif not regenerate_metadata and existing:
-                    # Keep existing embedding status
-                    main_metadata['has_embedding'] = existing.get('has_embedding', False)
-                else:
-                    main_metadata['has_embedding'] = False
-
-                # Determine if we need to update the embedding
-                # Only update embedding if we generated a new one
-                update_embedding = embedding if embedding is not None else None
-                
-                if existing and not regenerate_metadata:
-                    logger.info(f"UUID {uuid} already exists. Updating (embedding: {update_embedding is not None}).")
-                    postgre_service.update_image(uuid, main_metadata, embedding=update_embedding, document=document)
-                elif regenerate_metadata:
-                    logger.info(f"UUID {uuid} set to regenerate. Updating (embedding: {update_embedding is not None}).")
-                    if postgre_service.get_image(uuid) is not None:
-                        postgre_service.update_image(uuid, main_metadata, embedding=update_embedding, document=document)
-                    else:
-                        postgre_service.add_image(uuid, embedding, main_metadata, document=document)
-                else:
-                    # New record
-                    if embedding is not None:
-                        logger.info(f"UUID {uuid} is new. Indexing with metadata embeddings.")
-                    else:
-                        logger.info(f"UUID {uuid} is new. Indexing metadata-only entry (no embedding).")
-                    postgre_service.add_image(uuid, embedding, main_metadata, document=document)
-                
+                postgre_service.add_image(uuid, embedding, main_metadata, document=document)
                 success_count += 1
 
             except Exception as e:
@@ -523,6 +389,7 @@ def process_image_task(
                 failure_count += 1
 
         return success_count, failure_count
+
     except Exception as e:
         logger.error(f"Error during batch processing task: {str(e)}", exc_info=True)
         return 0, total_images

@@ -178,39 +178,17 @@ def test_process_image_task_stores_capture_time_contract_field(monkeypatch):
     assert captured_add_calls[0]["metadata"]["capture_time"] == "2026-05-02 12:34:56"
 
 
-def test_process_image_task_prestores_client_metadata_before_generation(monkeypatch):
+def test_process_image_task_stores_client_and_generated_metadata_together(monkeypatch):
+    """Client EXIF and LLM-generated metadata must both appear in the single stored record."""
     fake_config = types.ModuleType("config")
     fake_config.TEXT_EMBEDDING_MODEL_ID = "text-model"
     fake_config.logger = _make_logger()
 
-    records = {}
-    captured_updates = []
+    captured_calls = []
 
     fake_postgre_service = types.ModuleType("service_postgre")
-
-    def fake_get_image(uuid):
-        if uuid not in records:
-            return None
-        return {"ids": [uuid], "metadatas": [records[uuid]]}
-
-    def fake_update_image(uuid, metadata, embedding=None, document=None):
-        captured_updates.append(
-            {
-                "uuid": uuid,
-                "metadata": metadata.copy(),
-                "embedding": embedding,
-                "document": document,
-            }
-        )
-        records[uuid] = metadata.copy()
-
-    fake_postgre_service.get_image = fake_get_image
-    fake_postgre_service.update_image = fake_update_image
-    fake_postgre_service.add_image = lambda uuid, embedding, metadata, document=None: fake_update_image(
-        uuid,
-        metadata,
-        embedding=embedding,
-        document=document,
+    fake_postgre_service.add_image = lambda uuid, embedding, metadata, document=None: captured_calls.append(
+        {"uuid": uuid, "embedding": embedding, "metadata": metadata.copy(), "document": document}
     )
 
     fake_server_lifecycle = types.ModuleType("server_lifecycle")
@@ -219,8 +197,6 @@ def test_process_image_task_prestores_client_metadata_before_generation(monkeypa
     class FakeAnalysisService:
         def analyze_batch(self, image_triplets, options, _image_model=None, _image_processor=None,
                           uuids_needing_embeddings=None, uuids_needing_metadata=None, uuids_needing_quality=None):
-            assert "photo-1" in records
-            assert records["photo-1"]["exif"]["Model"] == "Client Camera"
             metadata_result = types.SimpleNamespace(
                 success=True,
                 title="Mountain lake",
@@ -250,7 +226,6 @@ def test_process_image_task_prestores_client_metadata_before_generation(monkeypa
             "compute_embeddings": False,
             "compute_metadata": True,
             "compute_quality": False,
-            "regenerate_metadata": True,
         },
         additional_metadata_list=[
             {
@@ -264,11 +239,11 @@ def test_process_image_task_prestores_client_metadata_before_generation(monkeypa
 
     assert success_count == 1
     assert failure_count == 0
-    assert len(captured_updates) >= 2
-    assert captured_updates[0]["metadata"]["has_embedding"] is False
-    assert captured_updates[0]["metadata"]["exif"]["Model"] == "Client Camera"
-    assert records["photo-1"]["title"] == "Mountain lake"
-    assert records["photo-1"]["exif"]["LensModel"] == "Client Lens"
+    assert len(captured_calls) == 1, "record must be stored exactly once"
+    stored = captured_calls[0]["metadata"]
+    assert stored["title"] == "Mountain lake"
+    assert stored["exif"]["Model"] == "Client Camera"
+    assert stored["exif"]["LensModel"] == "Client Lens"
 
 
 def test_process_image_task_does_not_extract_exif_from_image_bytes(monkeypatch):
