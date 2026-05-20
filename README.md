@@ -74,6 +74,8 @@ By default `/search` returns only `ai_model`, `ai_rundate`, `capture_time`, `dis
 
 The `/index` pipeline stores the canonical search-facing fields automatically, including `filename`, `ai_model`, `ai_rundate`, and `capture_time` from the request `capture_time` field.
 
+PostgreSQL also stores denormalized typed columns from metadata on every insert/update for faster filtering: `capture_time`, `aperture_f_number`, `iso`, `focal_length_mm`, `camera_make`, `camera_model`, `lens`, `gps_latitude`, and `gps_longitude`. The original JSONB metadata remains the source of truth and is still used as a fallback for older rows.
+
 `/get` is a `POST` endpoint for fetching stored photos and their metadata/quality payloads. Send filters in the JSON body using direct fields or nested `filters`, `metadata`, and `quality` objects. Supported filters include `uuid`, `filename`, `ai_model`, `ai_rundate`, `capture_time`, `provider`, and any other stored metadata key. If the body is empty, `/get` returns every photo. The response contains `count` plus a `photos` array with each record's `metadata` and `quality`.
 
 ### Models selection

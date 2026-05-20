@@ -1,6 +1,7 @@
 import importlib
 import sys
 import types
+from datetime import datetime
 from pathlib import Path
 
 
@@ -63,3 +64,83 @@ def test_postgre_filter_builder_includes_uuid_date_and_aperture_params(monkeypat
     assert ["aperture"] in params
     assert any(isinstance(value, float) and abs(value - 2.75) < 1e-9 for value in params)
     assert any(isinstance(value, float) and abs(value - 2.85) < 1e-9 for value in params)
+
+
+def test_extract_normalized_metadata_for_storage(monkeypatch):
+    service_postgre = _install_postgre_config(monkeypatch)
+
+    normalized = service_postgre._extract_normalized_metadata(
+        {
+            "capture_time": "2026-05-20 10:30:00",
+            "exif": {
+                "FNumber": "f/2.8",
+                "ISO": "200",
+                "FocalLength": "50 mm",
+                "Make": "Nikon",
+                "Model": "D850",
+                "LensModel": "NIKKOR 50mm",
+                "GPSLatitude": "45.899",
+                "GPSLongitude": "6.129",
+            },
+        }
+    )
+
+    assert normalized == {
+        "capture_time": datetime(2026, 5, 20, 10, 30, 0),
+        "aperture_f_number": 2.8,
+        "iso": 200,
+        "focal_length_mm": 50.0,
+        "camera_make": "Nikon",
+        "camera_model": "D850",
+        "lens": "NIKKOR 50mm",
+        "gps_latitude": 45.899,
+        "gps_longitude": 6.129,
+    }
+
+
+def test_upsert_record_sends_normalized_columns(monkeypatch):
+    service_postgre = _install_postgre_config(monkeypatch)
+    captured = {}
+
+    class FakeConnection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def execute(self, query, params):
+            captured["params"] = params
+
+    monkeypatch.setattr(service_postgre, "_connect_to_target", lambda: FakeConnection())
+
+    service_postgre._upsert_record(
+        "photo-a",
+        {
+            "capture_time": "2026-05-20 10:30:00",
+            "exif": {
+                "FNumber": "f/2.8",
+                "ISO": "200",
+                "FocalLength": "50 mm",
+                "Make": "Nikon",
+                "Model": "D850",
+                "LensModel": "NIKKOR 50mm",
+                "GPSLatitude": "45.899",
+                "GPSLongitude": "6.129",
+            },
+        },
+        embedding=[1.0, 0.0],
+        document="metadata text",
+    )
+
+    assert captured["params"][-9:] == (
+        datetime(2026, 5, 20, 10, 30, 0),
+        2.8,
+        200,
+        50.0,
+        "Nikon",
+        "D850",
+        "NIKKOR 50mm",
+        45.899,
+        6.129,
+    )

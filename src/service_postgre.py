@@ -1,3 +1,6 @@
+import re
+from datetime import datetime, timezone
+
 import numpy as np
 import psycopg
 from psycopg import sql
@@ -16,6 +19,20 @@ from config import (
 
 _initialized = False
 
+
+NORMALIZED_METADATA_COLUMNS = [
+    ("capture_time", "TIMESTAMP"),
+    ("aperture_f_number", "DOUBLE PRECISION"),
+    ("iso", "INTEGER"),
+    ("focal_length_mm", "DOUBLE PRECISION"),
+    ("camera_make", "TEXT"),
+    ("camera_model", "TEXT"),
+    ("lens", "TEXT"),
+    ("gps_latitude", "DOUBLE PRECISION"),
+    ("gps_longitude", "DOUBLE PRECISION"),
+]
+
+NORMALIZED_METADATA_COLUMN_NAMES = [column for column, _ in NORMALIZED_METADATA_COLUMNS]
 
 CAPTURE_TIME_METADATA_PATHS = [
     ["capture_time"],
@@ -42,6 +59,67 @@ APERTURE_METADATA_PATHS = [
     ["exif", "FNumber"],
     ["exif", "Aperture"],
     ["exif", "ApertureValue"],
+]
+
+ISO_METADATA_PATHS = [
+    ["iso"],
+    ["iso_speed_rating"],
+    ["exif", "iso"],
+    ["exif", "ISO"],
+    ["exif", "ISOSpeedRatings"],
+    ["exif", "iso_speed_rating"],
+]
+
+FOCAL_LENGTH_METADATA_PATHS = [
+    ["focal_length_mm"],
+    ["focal_length"],
+    ["exif", "focal_length_mm"],
+    ["exif", "focal_length"],
+    ["exif", "FocalLength"],
+]
+
+CAMERA_MAKE_METADATA_PATHS = [
+    ["camera_make"],
+    ["make"],
+    ["exif", "camera_make"],
+    ["exif", "make"],
+    ["exif", "Make"],
+]
+
+CAMERA_MODEL_METADATA_PATHS = [
+    ["camera_model"],
+    ["camera"],
+    ["exif", "camera_model"],
+    ["exif", "camera"],
+    ["exif", "model"],
+    ["exif", "Model"],
+]
+
+LENS_METADATA_PATHS = [
+    ["lens"],
+    ["lens_model"],
+    ["exif", "lens"],
+    ["exif", "lens_model"],
+    ["exif", "Lens"],
+    ["exif", "LensModel"],
+]
+
+GPS_LATITUDE_METADATA_PATHS = [
+    ["gps_latitude"],
+    ["latitude"],
+    ["gps", "latitude"],
+    ["exif", "gps_latitude"],
+    ["exif", "latitude"],
+    ["exif", "GPSLatitude"],
+]
+
+GPS_LONGITUDE_METADATA_PATHS = [
+    ["gps_longitude"],
+    ["longitude"],
+    ["gps", "longitude"],
+    ["exif", "gps_longitude"],
+    ["exif", "longitude"],
+    ["exif", "GPSLongitude"],
 ]
 
 
@@ -118,6 +196,139 @@ def _connect_to_target():
     return psycopg.connect(_target_conninfo())
 
 
+def _metadata_get_path(metadata, path):
+    value = metadata
+    for key in path:
+        if not isinstance(value, dict):
+            return None
+
+        if key in value:
+            value = value[key]
+            continue
+
+        lowered_key = str(key).casefold()
+        matched_key = next(
+            (candidate for candidate in value.keys() if str(candidate).casefold() == lowered_key),
+            None,
+        )
+        if matched_key is None:
+            return None
+
+        value = value[matched_key]
+
+    return value
+
+
+def _first_metadata_value(metadata, paths):
+    for path in paths:
+        value = _metadata_get_path(metadata, path)
+        if value in (None, "", [], {}):
+            continue
+        return value
+    return None
+
+
+def _coerce_text(value):
+    if value in (None, "", [], {}):
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _coerce_float(value):
+    if value in (None, "", [], {}):
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+
+    text = str(value).strip()
+    if not text:
+        return None
+
+    rational_match = re.search(r"([-+]?[0-9]+(?:\.[0-9]+)?)\s*/\s*([-+]?[0-9]+(?:\.[0-9]+)?)", text)
+    if rational_match:
+        numerator = float(rational_match.group(1))
+        denominator = float(rational_match.group(2))
+        if denominator != 0:
+            return numerator / denominator
+
+    number_match = re.search(r"[-+]?[0-9]+(?:\.[0-9]+)?", text)
+    if number_match:
+        return float(number_match.group(0))
+
+    return None
+
+
+def _coerce_int(value):
+    number = _coerce_float(value)
+    if number is None:
+        return None
+    return int(round(number))
+
+
+def _coerce_capture_time(value):
+    if value in (None, "", [], {}):
+        return None
+
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, (int, float)) and not isinstance(value, bool):
+        try:
+            parsed = datetime.fromtimestamp(float(value), tz=timezone.utc)
+        except (OverflowError, OSError, ValueError):
+            return None
+    else:
+        text = str(value).strip()
+        if not text:
+            return None
+
+        normalized_text = text[:-1] + "+00:00" if text.endswith("Z") else text
+        try:
+            parsed = datetime.fromisoformat(normalized_text)
+        except ValueError:
+            parsed = None
+            for date_format in (
+                "%Y:%m:%d %H:%M:%S",
+                "%Y-%m-%d %H:%M:%S",
+                "%Y/%m/%d %H:%M:%S",
+                "%Y-%m-%d",
+                "%Y/%m/%d",
+            ):
+                try:
+                    parsed = datetime.strptime(text, date_format)
+                    break
+                except ValueError:
+                    continue
+
+            if parsed is None:
+                return None
+
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+
+    return parsed
+
+
+def _extract_normalized_metadata(metadata):
+    metadata = metadata or {}
+    latitude = _coerce_float(_first_metadata_value(metadata, GPS_LATITUDE_METADATA_PATHS))
+    longitude = _coerce_float(_first_metadata_value(metadata, GPS_LONGITUDE_METADATA_PATHS))
+
+    return {
+        "capture_time": _coerce_capture_time(_first_metadata_value(metadata, CAPTURE_TIME_METADATA_PATHS)),
+        "aperture_f_number": _coerce_float(_first_metadata_value(metadata, APERTURE_METADATA_PATHS)),
+        "iso": _coerce_int(_first_metadata_value(metadata, ISO_METADATA_PATHS)),
+        "focal_length_mm": _coerce_float(_first_metadata_value(metadata, FOCAL_LENGTH_METADATA_PATHS)),
+        "camera_make": _coerce_text(_first_metadata_value(metadata, CAMERA_MAKE_METADATA_PATHS)),
+        "camera_model": _coerce_text(_first_metadata_value(metadata, CAMERA_MODEL_METADATA_PATHS)),
+        "lens": _coerce_text(_first_metadata_value(metadata, LENS_METADATA_PATHS)),
+        "gps_latitude": latitude,
+        "gps_longitude": longitude,
+    }
+
+
 def _ensure_initialized():
     global _initialized
     if _initialized:
@@ -143,16 +354,46 @@ def _ensure_initialized():
                     metadata JSONB NOT NULL DEFAULT '{{}}'::jsonb,
                     document TEXT,
                     embedding vector({dimension}),
+                    capture_time TIMESTAMP,
+                    aperture_f_number DOUBLE PRECISION,
+                    iso INTEGER,
+                    focal_length_mm DOUBLE PRECISION,
+                    camera_make TEXT,
+                    camera_model TEXT,
+                    lens TEXT,
+                    gps_latitude DOUBLE PRECISION,
+                    gps_longitude DOUBLE PRECISION,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
                     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
                 )
                 """
             ).format(dimension=sql.Literal(TEXT_EMBEDDING_DIMENSION))
         )
+        for column_name, column_type in NORMALIZED_METADATA_COLUMNS:
+            conn.execute(
+                sql.SQL("ALTER TABLE photo_metadata ADD COLUMN IF NOT EXISTS {} {}").format(
+                    sql.Identifier(column_name),
+                    sql.SQL(column_type),
+                )
+            )
         conn.execute(
             """
             CREATE INDEX IF NOT EXISTS photo_metadata_metadata_gin_idx
             ON photo_metadata USING gin (metadata)
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS photo_metadata_capture_time_idx
+            ON photo_metadata (capture_time)
+            WHERE capture_time IS NOT NULL
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS photo_metadata_aperture_f_number_idx
+            ON photo_metadata (aperture_f_number)
+            WHERE aperture_f_number IS NOT NULL
             """
         )
 
@@ -241,32 +482,60 @@ def _result(ids, metadatas=None, embeddings=None, documents=None, distances=None
 def _upsert_record(uuid, metadata, embedding=None, document=None, update_embedding=True):
     embedding_value = _embedding_literal(embedding)
     metadata = metadata or {}
+    normalized_metadata = _extract_normalized_metadata(metadata)
+    normalized_values = [normalized_metadata[column_name] for column_name in NORMALIZED_METADATA_COLUMN_NAMES]
 
     with _connect_to_target() as conn:
         if update_embedding:
             conn.execute(
                 """
-                INSERT INTO photo_metadata (uuid, metadata, document, embedding)
-                VALUES (%s, %s, %s, %s::vector)
+                INSERT INTO photo_metadata (
+                    uuid, metadata, document, embedding,
+                    capture_time, aperture_f_number, iso, focal_length_mm,
+                    camera_make, camera_model, lens, gps_latitude, gps_longitude
+                )
+                VALUES (%s, %s, %s, %s::vector, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (uuid) DO UPDATE SET
                     metadata = EXCLUDED.metadata,
                     document = COALESCE(EXCLUDED.document, photo_metadata.document),
                     embedding = EXCLUDED.embedding,
+                    capture_time = EXCLUDED.capture_time,
+                    aperture_f_number = EXCLUDED.aperture_f_number,
+                    iso = EXCLUDED.iso,
+                    focal_length_mm = EXCLUDED.focal_length_mm,
+                    camera_make = EXCLUDED.camera_make,
+                    camera_model = EXCLUDED.camera_model,
+                    lens = EXCLUDED.lens,
+                    gps_latitude = EXCLUDED.gps_latitude,
+                    gps_longitude = EXCLUDED.gps_longitude,
                     updated_at = now()
                 """,
-                (uuid, Jsonb(metadata), document, embedding_value),
+                (uuid, Jsonb(metadata), document, embedding_value, *normalized_values),
             )
         else:
             conn.execute(
                 """
-                INSERT INTO photo_metadata (uuid, metadata, document)
-                VALUES (%s, %s, %s)
+                INSERT INTO photo_metadata (
+                    uuid, metadata, document,
+                    capture_time, aperture_f_number, iso, focal_length_mm,
+                    camera_make, camera_model, lens, gps_latitude, gps_longitude
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (uuid) DO UPDATE SET
                     metadata = EXCLUDED.metadata,
                     document = COALESCE(EXCLUDED.document, photo_metadata.document),
+                    capture_time = EXCLUDED.capture_time,
+                    aperture_f_number = EXCLUDED.aperture_f_number,
+                    iso = EXCLUDED.iso,
+                    focal_length_mm = EXCLUDED.focal_length_mm,
+                    camera_make = EXCLUDED.camera_make,
+                    camera_model = EXCLUDED.camera_model,
+                    lens = EXCLUDED.lens,
+                    gps_latitude = EXCLUDED.gps_latitude,
+                    gps_longitude = EXCLUDED.gps_longitude,
                     updated_at = now()
                 """,
-                (uuid, Jsonb(metadata), document),
+                (uuid, Jsonb(metadata), document, *normalized_values),
             )
 
 
@@ -421,6 +690,53 @@ def _metadata_text_filter_clause(filter_item):
     return sql.SQL("(") + sql.SQL(" OR ").join(clauses) + sql.SQL(")"), params
 
 
+def _capture_time_column_filter_clause(filter_item):
+    op = str(filter_item.get("op", "eq")).casefold()
+    value = filter_item.get("value")
+    if value is None:
+        return None, []
+
+    operator_map = {
+        "eq": "=",
+        "equals": "=",
+        "gte": ">=",
+        "gt": ">",
+        "lte": "<=",
+        "lt": "<",
+    }
+    operator = operator_map.get(op)
+    if operator is None:
+        return None, []
+
+    return (
+        sql.SQL("(capture_time IS NOT NULL AND capture_time {operator} %s::timestamp)").format(
+            operator=sql.SQL(operator),
+        ),
+        [str(value)],
+    )
+
+
+def _metadata_text_filter_clause_with_column(filter_item, column_clause, column_name):
+    fallback_clause, fallback_params = _metadata_text_filter_clause(filter_item)
+    if column_clause is None:
+        return fallback_clause, fallback_params
+
+    column_sql, column_params = column_clause
+    if fallback_clause is None:
+        return column_sql, column_params
+
+    return (
+        (
+            sql.SQL("(")
+            + column_sql
+            + sql.SQL(" OR ({column} IS NULL AND ").format(column=sql.Identifier(column_name))
+            + fallback_clause
+            + sql.SQL("))")
+        ),
+        [*column_params, *fallback_params],
+    )
+
+
 def _metadata_numeric_filter_clause(filter_item):
     paths = _metadata_paths_for_filter(filter_item)
     if not paths:
@@ -473,11 +789,79 @@ def _metadata_numeric_filter_clause(filter_item):
     return sql.SQL("(") + sql.SQL(" OR ").join(clauses) + sql.SQL(")"), params
 
 
+def _numeric_column_filter_clause(filter_item, column_name):
+    try:
+        value = float(filter_item.get("value"))
+    except (TypeError, ValueError):
+        return None, []
+
+    op = str(filter_item.get("op", "number_eq")).casefold()
+
+    if op in {"number_eq", "eq", "equals"}:
+        tolerance = filter_item.get("tolerance", 0.0)
+        try:
+            tolerance = abs(float(tolerance))
+        except (TypeError, ValueError):
+            tolerance = 0.0
+
+        return (
+            sql.SQL("({column} IS NOT NULL AND {column} BETWEEN %s AND %s)").format(
+                column=sql.Identifier(column_name),
+            ),
+            [value - tolerance, value + tolerance],
+        )
+
+    operator_map = {
+        "gte": ">=",
+        "gt": ">",
+        "lte": "<=",
+        "lt": "<",
+    }
+    operator = operator_map.get(op)
+    if operator is None:
+        return None, []
+
+    return (
+        sql.SQL("({column} IS NOT NULL AND {column} {operator} %s)").format(
+            column=sql.Identifier(column_name),
+            operator=sql.SQL(operator),
+        ),
+        [value],
+    )
+
+
+def _metadata_numeric_filter_clause_with_column(filter_item, column_name):
+    column_clause, column_params = _numeric_column_filter_clause(filter_item, column_name)
+    fallback_clause, fallback_params = _metadata_numeric_filter_clause(filter_item)
+
+    if column_clause is None:
+        return fallback_clause, fallback_params
+    if fallback_clause is None:
+        return column_clause, column_params
+
+    return (
+        (
+            sql.SQL("(")
+            + column_clause
+            + sql.SQL(" OR ({column} IS NULL AND ").format(column=sql.Identifier(column_name))
+            + fallback_clause
+            + sql.SQL("))")
+        ),
+        [*column_params, *fallback_params],
+    )
+
+
 def _metadata_filter_clause(filter_item):
     field = str(filter_item.get("field", "")).strip().casefold()
     op = str(filter_item.get("op", "")).casefold()
+    if field == "capture_time":
+        return _metadata_text_filter_clause_with_column(
+            filter_item,
+            _capture_time_column_filter_clause(filter_item),
+            "capture_time",
+        )
     if field in {"aperture", "aperture_f_number", "f_number", "fnumber", "f_stop", "fstop"} or op.startswith("number"):
-        return _metadata_numeric_filter_clause(filter_item)
+        return _metadata_numeric_filter_clause_with_column(filter_item, "aperture_f_number")
     return _metadata_text_filter_clause(filter_item)
 
 
