@@ -51,7 +51,7 @@ def _install_core_fakes(monkeypatch):
         ]],
         "embeddings": [[[1.0, 0.0], [1.0, 0.0]]],
     }
-    fake_postgre_service.get_image_metadatas = lambda ids=None: {
+    fake_postgre_service.get_image_metadatas = lambda ids=None, where_clause=None: {
         "ids": ["photo-a", "photo-b", "photo-c"],
         "metadatas": [
             {
@@ -110,11 +110,122 @@ def test_search_images_exposes_internal_metadata(monkeypatch):
     assert by_uuid["photo-c"]["metadata_match"] is True
 
 
+def test_parse_search_query_extracts_date_and_aperture_filters(monkeypatch):
+    _install_core_fakes(monkeypatch)
+    sys.modules.pop("service_search", None)
+
+    service_search = importlib.import_module("service_search")
+
+    annecy_query = service_search._parse_search_query("Annecy May 2026")
+    assert annecy_query["semantic_term"] == "Annecy"
+    assert annecy_query["metadata_filters"] == [
+        {
+            "field": "capture_time",
+            "op": "gte",
+            "value": "2026-05-01",
+            "source": "query_month",
+        },
+        {
+            "field": "capture_time",
+            "op": "lt",
+            "value": "2026-06-01",
+            "source": "query_month",
+        },
+    ]
+
+    lake_query = service_search._parse_search_query("Lake with F2.8")
+    assert lake_query["semantic_term"] == "Lake"
+    assert lake_query["metadata_filters"] == [
+        {
+            "field": "aperture",
+            "op": "number_eq",
+            "value": 2.8,
+            "tolerance": 0.05,
+            "source": "query_aperture",
+        }
+    ]
+
+
+def test_search_images_pushes_query_filters_to_postgres(monkeypatch):
+    fake_config = types.ModuleType("config")
+    fake_config.DEFAULT_MIN_PERTINENCE_SCORE = 0.35
+    fake_config.logger = _make_logger()
+
+    captured = {}
+
+    fake_server_lifecycle = types.ModuleType("server_lifecycle")
+
+    def fake_embed_query(term):
+        captured["semantic_term"] = term
+        return [1.0, 0.0]
+
+    fake_server_lifecycle.embed_query = fake_embed_query
+
+    photo_metadata = {
+        "filename": "annecy.jpg",
+        "title": "Annecy lake",
+        "capture_time": "2026-05-20 10:00:00",
+    }
+
+    fake_postgre_service = types.ModuleType("service_postgre")
+
+    def fake_query_images(query_embedding, n_results, where_clause=None, include_embeddings=False):
+        captured["query_where_clause"] = where_clause
+        return {
+            "ids": [["photo-a"]],
+            "distances": [[0.1]],
+            "metadatas": [[photo_metadata]],
+            "embeddings": [[[1.0, 0.0]]],
+        }
+
+    def fake_get_image_metadatas(ids=None, where_clause=None):
+        captured["metadata_ids"] = ids
+        captured["metadata_where_clause"] = where_clause
+        return {
+            "ids": ["photo-a"],
+            "metadatas": [photo_metadata],
+        }
+
+    fake_postgre_service.query_images = fake_query_images
+    fake_postgre_service.get_image_metadatas = fake_get_image_metadatas
+    fake_postgre_service.group_and_sort_images = lambda *args, **kwargs: []
+
+    monkeypatch.setitem(sys.modules, "config", fake_config)
+    monkeypatch.setitem(sys.modules, "server_lifecycle", fake_server_lifecycle)
+    monkeypatch.setitem(sys.modules, "service_postgre", fake_postgre_service)
+    sys.modules.pop("service_search", None)
+
+    service_search = importlib.import_module("service_search")
+
+    results = service_search.search_images("Annecy May 2026", None, None, 0.0)
+
+    assert captured["semantic_term"] == "Annecy"
+    assert captured["query_where_clause"] == {
+        "metadata_filters": [
+            {
+                "field": "capture_time",
+                "op": "gte",
+                "value": "2026-05-01",
+                "source": "query_month",
+            },
+            {
+                "field": "capture_time",
+                "op": "lt",
+                "value": "2026-06-01",
+                "source": "query_month",
+            },
+        ]
+    }
+    assert captured["metadata_where_clause"] == captured["query_where_clause"]
+    assert results[0]["uuid"] == "photo-a"
+    assert results[0]["match_type"] == "semantic+metadata"
+
+
 def test_search_route_returns_minimum_fields_by_default(monkeypatch):
     _install_core_fakes(monkeypatch)
 
     fake_service_search = types.ModuleType("service_search")
-    fake_service_search.search_images = lambda term, quality_sort, uuids_to_search, min_pertinence_score: [
+    fake_service_search.search_images = lambda term, quality_sort, uuids_to_search, min_pertinence_score, search_filters=None: [
         {
             "uuid": "photo-a",
             "filename": "alpha.jpg",
@@ -173,7 +284,7 @@ def test_search_route_includes_metadata_when_requested(monkeypatch):
     _install_core_fakes(monkeypatch)
 
     fake_service_search = types.ModuleType("service_search")
-    fake_service_search.search_images = lambda term, quality_sort, uuids_to_search, min_pertinence_score: [
+    fake_service_search.search_images = lambda term, quality_sort, uuids_to_search, min_pertinence_score, search_filters=None: [
         {
             "uuid": "photo-a",
             "filename": "alpha.jpg",
@@ -235,3 +346,47 @@ def test_search_route_includes_metadata_when_requested(monkeypatch):
             "uuid": "photo-a",
         }
     ]
+
+
+def test_search_route_forwards_structured_filters(monkeypatch):
+    _install_core_fakes(monkeypatch)
+
+    captured = {}
+    fake_service_search = types.ModuleType("service_search")
+
+    def fake_search_images(term, quality_sort, uuids_to_search, min_pertinence_score, search_filters=None):
+        captured["term"] = term
+        captured["filters"] = search_filters
+        return []
+
+    fake_service_search.search_images = fake_search_images
+    fake_service_search.group_similar_images = lambda *args, **kwargs: []
+
+    monkeypatch.setitem(sys.modules, "service_search", fake_service_search)
+    sys.modules.pop("routes_search", None)
+
+    routes_search = importlib.import_module("routes_search")
+
+    app = Flask(__name__)
+    app.register_blueprint(routes_search.search_bp)
+
+    with app.test_client() as client:
+        response = client.post(
+            "/search",
+            json={
+                "term": "lake",
+                "filters": {
+                    "capture_time": "2026-05",
+                    "aperture_f_number": 2.8,
+                },
+            },
+        )
+
+    assert response.status_code == 200
+    assert captured == {
+        "term": "lake",
+        "filters": {
+            "capture_time": "2026-05",
+            "aperture_f_number": 2.8,
+        },
+    }

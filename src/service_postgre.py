@@ -17,6 +17,34 @@ from config import (
 _initialized = False
 
 
+CAPTURE_TIME_METADATA_PATHS = [
+    ["capture_time"],
+    ["exif", "capture_time"],
+    ["exif", "DateTimeOriginal"],
+    ["exif", "date_time_original"],
+    ["exif", "CreateDate"],
+    ["exif", "create_date"],
+]
+
+APERTURE_METADATA_PATHS = [
+    ["aperture"],
+    ["aperture_f_number"],
+    ["f_number"],
+    ["fnumber"],
+    ["f_stop"],
+    ["fstop"],
+    ["exif", "aperture"],
+    ["exif", "aperture_f_number"],
+    ["exif", "f_number"],
+    ["exif", "fnumber"],
+    ["exif", "f_stop"],
+    ["exif", "fstop"],
+    ["exif", "FNumber"],
+    ["exif", "Aperture"],
+    ["exif", "ApertureValue"],
+]
+
+
 class PostgreStartupError(RuntimeError):
     pass
 
@@ -308,19 +336,186 @@ def _uuid_filter(where_clause):
     return None
 
 
+def _metadata_filter_entries(where_clause):
+    if not where_clause:
+        return []
+
+    filters = where_clause.get("metadata_filters")
+    if filters is None:
+        filters = where_clause.get("filters")
+    if filters is None:
+        return []
+    if isinstance(filters, dict):
+        filters = [filters]
+    if not isinstance(filters, list):
+        return []
+
+    return [item for item in filters if isinstance(item, dict)]
+
+
+def _metadata_paths_for_filter(filter_item):
+    raw_paths = filter_item.get("paths")
+    if isinstance(raw_paths, list) and raw_paths:
+        paths = []
+        for path in raw_paths:
+            if isinstance(path, str):
+                paths.append([path])
+            elif isinstance(path, list) and path:
+                paths.append([str(part) for part in path])
+        if paths:
+            return paths
+
+    field = str(filter_item.get("field", "")).strip().casefold()
+    if field == "capture_time":
+        return CAPTURE_TIME_METADATA_PATHS
+    if field in {"aperture", "aperture_f_number", "f_number", "fnumber", "f_stop", "fstop"}:
+        return APERTURE_METADATA_PATHS
+    if field:
+        return [[field]]
+    return []
+
+
+def _metadata_path_expr():
+    return sql.SQL("metadata #>> %s::text[]")
+
+
+def _metadata_number_expr():
+    return sql.SQL(
+        "NULLIF(substring({value_expr} from '[-+]?[0-9]+\\.?[0-9]*'), '')::double precision"
+    ).format(value_expr=_metadata_path_expr())
+
+
+def _metadata_text_filter_clause(filter_item):
+    paths = _metadata_paths_for_filter(filter_item)
+    if not paths:
+        return None, []
+
+    op = str(filter_item.get("op", "eq")).casefold()
+    value = filter_item.get("value")
+    if value is None:
+        return None, []
+
+    operator_map = {
+        "eq": "=",
+        "equals": "=",
+        "gte": ">=",
+        "gt": ">",
+        "lte": "<=",
+        "lt": "<",
+    }
+    operator = operator_map.get(op)
+    if operator is None:
+        return None, []
+
+    clauses = []
+    params = []
+    for path in paths:
+        clauses.append(
+            sql.SQL("({value_expr} {operator} %s)").format(
+                value_expr=_metadata_path_expr(),
+                operator=sql.SQL(operator),
+            )
+        )
+        params.extend([path, str(value)])
+
+    return sql.SQL("(") + sql.SQL(" OR ").join(clauses) + sql.SQL(")"), params
+
+
+def _metadata_numeric_filter_clause(filter_item):
+    paths = _metadata_paths_for_filter(filter_item)
+    if not paths:
+        return None, []
+
+    try:
+        value = float(filter_item.get("value"))
+    except (TypeError, ValueError):
+        return None, []
+
+    op = str(filter_item.get("op", "number_eq")).casefold()
+    clauses = []
+    params = []
+
+    if op in {"number_eq", "eq", "equals"}:
+        tolerance = filter_item.get("tolerance", 0.0)
+        try:
+            tolerance = abs(float(tolerance))
+        except (TypeError, ValueError):
+            tolerance = 0.0
+        lower_bound = value - tolerance
+        upper_bound = value + tolerance
+        for path in paths:
+            clauses.append(
+                sql.SQL("({value_expr} BETWEEN %s AND %s)").format(
+                    value_expr=_metadata_number_expr(),
+                )
+            )
+            params.extend([path, lower_bound, upper_bound])
+    else:
+        operator_map = {
+            "gte": ">=",
+            "gt": ">",
+            "lte": "<=",
+            "lt": "<",
+        }
+        operator = operator_map.get(op)
+        if operator is None:
+            return None, []
+
+        for path in paths:
+            clauses.append(
+                sql.SQL("({value_expr} {operator} %s)").format(
+                    value_expr=_metadata_number_expr(),
+                    operator=sql.SQL(operator),
+                )
+            )
+            params.extend([path, value])
+
+    return sql.SQL("(") + sql.SQL(" OR ").join(clauses) + sql.SQL(")"), params
+
+
+def _metadata_filter_clause(filter_item):
+    field = str(filter_item.get("field", "")).strip().casefold()
+    op = str(filter_item.get("op", "")).casefold()
+    if field in {"aperture", "aperture_f_number", "f_number", "fnumber", "f_stop", "fstop"} or op.startswith("number"):
+        return _metadata_numeric_filter_clause(filter_item)
+    return _metadata_text_filter_clause(filter_item)
+
+
+def _filter_clauses(where_clause):
+    clauses = []
+    params = []
+
+    uuid_filter = _uuid_filter(where_clause)
+    if uuid_filter:
+        clauses.append(sql.SQL("uuid = ANY(%s)"))
+        params.append(uuid_filter)
+
+    for filter_item in _metadata_filter_entries(where_clause):
+        clause, clause_params = _metadata_filter_clause(filter_item)
+        if clause is None:
+            continue
+        clauses.append(clause)
+        params.extend(clause_params)
+
+    return clauses, params
+
+
+def _filter_sql(where_clause, prefix):
+    clauses, params = _filter_clauses(where_clause)
+    if not clauses:
+        return sql.SQL(""), []
+
+    return sql.SQL(f"{prefix} ") + sql.SQL(" AND ").join(clauses), params
+
+
 def query_images(query_embedding, n_results, where_clause=None, include_embeddings=False):
     _ensure_initialized()
     query_vector = _embedding_literal(query_embedding)
-    uuid_filter = _uuid_filter(where_clause)
 
     try:
         select_embedding = ", embedding::text AS embedding" if include_embeddings else ""
-        params = [query_vector]
-        filter_sql = sql.SQL("")
-        if uuid_filter:
-            filter_sql = sql.SQL("AND uuid = ANY(%s)")
-            params.append(uuid_filter)
-        params.append(n_results)
+        filter_sql, filter_params = _filter_sql(where_clause, "AND")
+        params = [query_vector, *filter_params, query_vector, n_results]
 
         query = sql.SQL(
             """
@@ -336,7 +531,6 @@ def query_images(query_embedding, n_results, where_clause=None, include_embeddin
             select_embedding=sql.SQL(select_embedding),
             filter_sql=filter_sql,
         )
-        params.insert(-1, query_vector)
 
         with _connect_to_target() as conn:
             rows = conn.execute(query, params).fetchall()
@@ -361,27 +555,26 @@ def query_images(query_embedding, n_results, where_clause=None, include_embeddin
         return fallback
 
 
-def get_image_metadatas(ids=None):
+def get_image_metadatas(ids=None, where_clause=None):
     _ensure_initialized()
+    effective_where_clause = dict(where_clause or {})
+    if ids:
+        effective_where_clause["uuid"] = {"$in": list(ids)}
+
+    filter_sql, filter_params = _filter_sql(effective_where_clause, "WHERE")
+
     with _connect_to_target() as conn:
-        if ids:
-            rows = conn.execute(
+        rows = conn.execute(
+            sql.SQL(
                 """
                 SELECT uuid, metadata
                 FROM photo_metadata
-                WHERE uuid = ANY(%s)
-                ORDER BY uuid
-                """,
-                (list(ids),),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                """
-                SELECT uuid, metadata
-                FROM photo_metadata
+                {filter_sql}
                 ORDER BY uuid
                 """
-            ).fetchall()
+            ).format(filter_sql=filter_sql),
+            filter_params,
+        ).fetchall()
 
     return _result([row[0] for row in rows], metadatas=[row[1] or {} for row in rows])
 
