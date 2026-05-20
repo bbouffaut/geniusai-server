@@ -1,3 +1,4 @@
+import json
 import re
 from datetime import datetime, timezone
 
@@ -58,16 +59,23 @@ APERTURE_METADATA_PATHS = [
     ["exif", "fstop"],
     ["exif", "FNumber"],
     ["exif", "Aperture"],
+]
+
+APERTURE_VALUE_METADATA_PATHS = [
+    ["aperture_value"],
+    ["exif", "aperture_value"],
     ["exif", "ApertureValue"],
 ]
 
 ISO_METADATA_PATHS = [
     ["iso"],
     ["iso_speed_rating"],
+    ["iso_speed_ratings"],
     ["exif", "iso"],
     ["exif", "ISO"],
     ["exif", "ISOSpeedRatings"],
     ["exif", "iso_speed_rating"],
+    ["exif", "iso_speed_ratings"],
 ]
 
 FOCAL_LENGTH_METADATA_PATHS = [
@@ -196,9 +204,28 @@ def _connect_to_target():
     return psycopg.connect(_target_conninfo())
 
 
+def _maybe_parse_json_container(value):
+    if not isinstance(value, str):
+        return value
+
+    stripped = value.strip()
+    if not stripped or stripped[0] not in "[{":
+        return value
+
+    try:
+        return json.loads(stripped)
+    except json.JSONDecodeError:
+        return value
+
+
+def _normalize_metadata_key(key):
+    return re.sub(r"[^a-z0-9]+", "", str(key).casefold())
+
+
 def _metadata_get_path(metadata, path):
-    value = metadata
+    value = _maybe_parse_json_container(metadata)
     for key in path:
+        value = _maybe_parse_json_container(value)
         if not isinstance(value, dict):
             return None
 
@@ -206,9 +233,9 @@ def _metadata_get_path(metadata, path):
             value = value[key]
             continue
 
-        lowered_key = str(key).casefold()
+        normalized_key = _normalize_metadata_key(key)
         matched_key = next(
-            (candidate for candidate in value.keys() if str(candidate).casefold() == lowered_key),
+            (candidate for candidate in value.keys() if _normalize_metadata_key(candidate) == normalized_key),
             None,
         )
         if matched_key is None:
@@ -220,10 +247,17 @@ def _metadata_get_path(metadata, path):
 
 
 def _first_metadata_value(metadata, paths):
+    nested_metadata = None
+    if isinstance(metadata, dict):
+        nested_metadata = _maybe_parse_json_container(metadata.get("metadata"))
+
     for path in paths:
         value = _metadata_get_path(metadata, path)
         if value in (None, "", [], {}):
-            continue
+            if nested_metadata not in (None, "", [], {}) and isinstance(nested_metadata, dict):
+                value = _metadata_get_path(nested_metadata, path)
+            if value in (None, "", [], {}):
+                continue
         return value
     return None
 
@@ -266,6 +300,18 @@ def _coerce_int(value):
     if number is None:
         return None
     return int(round(number))
+
+
+def _coerce_aperture_f_number(metadata):
+    f_number = _coerce_float(_first_metadata_value(metadata, APERTURE_METADATA_PATHS))
+    if f_number is not None:
+        return f_number
+
+    aperture_value = _coerce_float(_first_metadata_value(metadata, APERTURE_VALUE_METADATA_PATHS))
+    if aperture_value is None:
+        return None
+
+    return 2 ** (aperture_value / 2)
 
 
 def _coerce_capture_time(value):
@@ -318,7 +364,7 @@ def _extract_normalized_metadata(metadata):
 
     return {
         "capture_time": _coerce_capture_time(_first_metadata_value(metadata, CAPTURE_TIME_METADATA_PATHS)),
-        "aperture_f_number": _coerce_float(_first_metadata_value(metadata, APERTURE_METADATA_PATHS)),
+        "aperture_f_number": _coerce_aperture_f_number(metadata),
         "iso": _coerce_int(_first_metadata_value(metadata, ISO_METADATA_PATHS)),
         "focal_length_mm": _coerce_float(_first_metadata_value(metadata, FOCAL_LENGTH_METADATA_PATHS)),
         "camera_make": _coerce_text(_first_metadata_value(metadata, CAMERA_MAKE_METADATA_PATHS)),
@@ -327,6 +373,80 @@ def _extract_normalized_metadata(metadata):
         "gps_latitude": latitude,
         "gps_longitude": longitude,
     }
+
+
+def _has_normalized_metadata_value(normalized_metadata):
+    return any(value is not None for value in normalized_metadata.values())
+
+
+def _backfill_normalized_metadata_columns(conn):
+    rows = conn.execute(
+        """
+        SELECT uuid, metadata
+        FROM photo_metadata
+        WHERE (
+            metadata ? 'exif'
+            OR metadata ? 'metadata'
+            OR metadata ? 'capture_time'
+            OR metadata ? 'aperture'
+            OR metadata ? 'aperture_f_number'
+            OR metadata ? 'iso'
+            OR metadata ? 'focal_length'
+            OR metadata ? 'focal_length_mm'
+            OR metadata ? 'gps'
+        )
+        AND (
+            capture_time IS NULL
+            OR aperture_f_number IS NULL
+            OR iso IS NULL
+            OR focal_length_mm IS NULL
+            OR camera_make IS NULL
+            OR camera_model IS NULL
+            OR lens IS NULL
+            OR gps_latitude IS NULL
+            OR gps_longitude IS NULL
+        )
+        """
+    ).fetchall()
+
+    backfilled_count = 0
+    for uuid, metadata in rows:
+        normalized_metadata = _extract_normalized_metadata(metadata or {})
+        if not _has_normalized_metadata_value(normalized_metadata):
+            continue
+
+        conn.execute(
+            """
+            UPDATE photo_metadata
+            SET
+                capture_time = COALESCE(%s, capture_time),
+                aperture_f_number = COALESCE(%s, aperture_f_number),
+                iso = COALESCE(%s, iso),
+                focal_length_mm = COALESCE(%s, focal_length_mm),
+                camera_make = COALESCE(%s, camera_make),
+                camera_model = COALESCE(%s, camera_model),
+                lens = COALESCE(%s, lens),
+                gps_latitude = COALESCE(%s, gps_latitude),
+                gps_longitude = COALESCE(%s, gps_longitude)
+            WHERE uuid = %s
+            """,
+            (
+                normalized_metadata["capture_time"],
+                normalized_metadata["aperture_f_number"],
+                normalized_metadata["iso"],
+                normalized_metadata["focal_length_mm"],
+                normalized_metadata["camera_make"],
+                normalized_metadata["camera_model"],
+                normalized_metadata["lens"],
+                normalized_metadata["gps_latitude"],
+                normalized_metadata["gps_longitude"],
+                uuid,
+            ),
+        )
+        backfilled_count += 1
+
+    if backfilled_count:
+        logger.info(f"Backfilled normalized metadata columns for {backfilled_count} photo(s).")
 
 
 def _ensure_initialized():
@@ -396,6 +516,7 @@ def _ensure_initialized():
             WHERE aperture_f_number IS NOT NULL
             """
         )
+        _backfill_normalized_metadata_columns(conn)
 
     try:
         with _connect_to_target() as conn:

@@ -50,6 +50,7 @@ INDEX_UPLOAD_RESERVED_FIELDS = {
     "prompt",
     "capture_time",
     "tasks",
+    "metadata",
 }
 
 def _logged_form_values(form):
@@ -292,11 +293,53 @@ def _normalize_metadata_value(value):
     return value
 
 
+def _metadata_payloads_from_value(value):
+    normalized = _normalize_metadata_value(value)
+    if isinstance(normalized, dict):
+        return [normalized]
+    if isinstance(normalized, list):
+        return [item for item in normalized if isinstance(item, dict)]
+    return []
+
+
+def _metadata_payload_from_value(value):
+    payloads = _metadata_payloads_from_value(value)
+    return payloads[0] if payloads else {}
+
+
+def _merge_metadata_payload(target, payload):
+    if not isinstance(payload, dict):
+        return
+
+    for key, value in payload.items():
+        if key in INDEX_UPLOAD_RESERVED_FIELDS:
+            continue
+        target[key] = _normalize_metadata_value(value)
+
+
 def _extract_uploaded_metadata(form, batch_size):
     if batch_size <= 0:
         return []
 
     metadata_by_index = [dict() for _ in range(batch_size)]
+
+    metadata_values = form.getlist("metadata")
+    if metadata_values:
+        metadata_payload_groups = [_metadata_payloads_from_value(value) for value in metadata_values]
+        if len(metadata_payload_groups) == 1 and len(metadata_payload_groups[0]) == batch_size:
+            for index, payload in enumerate(metadata_payload_groups[0]):
+                _merge_metadata_payload(metadata_by_index[index], payload)
+        elif len(metadata_payload_groups) == batch_size and all(len(group) == 1 for group in metadata_payload_groups):
+            for index, payload_group in enumerate(metadata_payload_groups):
+                _merge_metadata_payload(metadata_by_index[index], payload_group[0])
+        elif len(metadata_payload_groups) == 1 and len(metadata_payload_groups[0]) == 1:
+            for metadata in metadata_by_index:
+                _merge_metadata_payload(metadata, metadata_payload_groups[0][0])
+        else:
+            payloads = [payload for group in metadata_payload_groups for payload in group]
+            for metadata in metadata_by_index:
+                for payload in payloads:
+                    _merge_metadata_payload(metadata, payload)
 
     for key in form.keys():
         if key in INDEX_UPLOAD_RESERVED_FIELDS:
@@ -325,7 +368,7 @@ def _extract_uploaded_metadata(form, batch_size):
 
 
 def _extract_json_metadata(data):
-    metadata = {}
+    metadata = _metadata_payload_from_value(data.get("metadata"))
     for key, value in data.items():
         if key in INDEX_UPLOAD_RESERVED_FIELDS:
             continue

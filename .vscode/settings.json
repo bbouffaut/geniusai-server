@@ -6,6 +6,18 @@
             "driver": "SQLite",
             "name": "genius-server",
             "database": "/Volumes/Extreme SSD/Lightroom Plugins/lrgeniusAI-data/lrgenius.db/chroma.sqlite3"
+        },
+        {
+            "ssh": "Disabled",
+            "previewLimit": 50,
+            "server": "10.10.0.233",
+            "port": 32345,
+            "driver": "PostgreSQL",
+            "name": "geniusai-server_qwen3-embedding-0.6b",
+            "group": "Skails postgre",
+            "database": "geniusai-server_qwen3-embedding-0.6b",
+            "username": "admin",
+            "password": "superuserpassword"
         }
     ]
 }

@@ -1,6 +1,7 @@
 import base64
 import importlib
 import io
+import json
 import sys
 import types
 from pathlib import Path
@@ -129,6 +130,62 @@ def test_index_accepts_extra_metadata(monkeypatch):
     ]
 
 
+def test_index_accepts_nested_metadata_payload(monkeypatch):
+    app, captured_calls = _install_index_fakes(monkeypatch)
+
+    with app.test_client() as client:
+        response = client.post(
+            "/index",
+            data={
+                "image": (io.BytesIO(b"fake-image"), "upload.jpg"),
+                "uuid": "photo-1",
+                "filename": "photo-1.jpg",
+                "capture_time": "2026-05-02 12:34:56",
+                "metadata": "{\"exif\": {\"F Number\": \"2.8\", \"ISO Speed Ratings\": \"400\"}, \"album\": \"Summer\"}",
+            },
+            content_type="multipart/form-data",
+        )
+
+    assert response.status_code == 200
+    assert captured_calls[0]["additional_metadata_list"] == [
+        {
+            "exif": {"F Number": "2.8", "ISO Speed Ratings": "400"},
+            "album": "Summer",
+        }
+    ]
+
+
+def test_index_accepts_metadata_payload_array(monkeypatch):
+    app, captured_calls = _install_index_fakes(monkeypatch)
+
+    with app.test_client() as client:
+        response = client.post(
+            "/index",
+            data={
+                "image": [
+                    (io.BytesIO(b"fake-image-a"), "upload-a.jpg"),
+                    (io.BytesIO(b"fake-image-b"), "upload-b.jpg"),
+                ],
+                "uuid": ["photo-1", "photo-2"],
+                "filename": ["photo-1.jpg", "photo-2.jpg"],
+                "capture_time": "2026-05-02 12:34:56",
+                "metadata": json.dumps(
+                    [
+                        {"exif": {"F Number": "2.8"}},
+                        {"exif": {"F Number": "4.0"}},
+                    ]
+                ),
+            },
+            content_type="multipart/form-data",
+        )
+
+    assert response.status_code == 200
+    assert captured_calls[0]["additional_metadata_list"] == [
+        {"exif": {"F Number": "2.8"}},
+        {"exif": {"F Number": "4.0"}},
+    ]
+
+
 def test_index_keeps_capture_time_out_of_extra_metadata(monkeypatch):
     app, captured_calls = _install_index_fakes(monkeypatch)
 
@@ -199,6 +256,34 @@ def test_index_base64_accepts_extra_metadata(monkeypatch):
     assert captured_calls[0]["additional_metadata_list"] == [
         {
             "exif": {"camera": "Nikon"},
+            "album": "Summer",
+        }
+    ]
+
+
+def test_index_base64_accepts_nested_metadata_payload(monkeypatch):
+    app, captured_calls = _install_index_fakes(monkeypatch)
+    encoded_image = base64.b64encode(b"fake-image").decode("ascii")
+
+    with app.test_client() as client:
+        response = client.post(
+            "/index_base64",
+            json={
+                "image": encoded_image,
+                "uuid": "photo-1",
+                "filename": "photo-1.jpg",
+                "capture_time": "2026-05-02 12:34:56",
+                "metadata": {
+                    "exif": {"F Number": "2.8", "ISO Speed Ratings": "400"},
+                    "album": "Summer",
+                },
+            },
+        )
+
+    assert response.status_code == 200
+    assert captured_calls[0]["additional_metadata_list"] == [
+        {
+            "exif": {"F Number": "2.8", "ISO Speed Ratings": "400"},
             "album": "Summer",
         }
     ]

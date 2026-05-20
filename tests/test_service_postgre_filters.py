@@ -98,6 +98,80 @@ def test_extract_normalized_metadata_for_storage(monkeypatch):
     }
 
 
+def test_extract_normalized_metadata_accepts_loose_exif_keys(monkeypatch):
+    service_postgre = _install_postgre_config(monkeypatch)
+
+    normalized = service_postgre._extract_normalized_metadata(
+        {
+            "exif": {
+                "Date Time Original": "2026:05:20 10:30:00",
+                "F Number": "2.8",
+                "ISO Speed Ratings": "400",
+                "Focal Length": "35 mm",
+                "Lens Model": "XF 35mm",
+                "GPS Latitude": "45.899",
+                "GPS Longitude": "6.129",
+            },
+        }
+    )
+
+    assert normalized["capture_time"] == datetime(2026, 5, 20, 10, 30, 0)
+    assert normalized["aperture_f_number"] == 2.8
+    assert normalized["iso"] == 400
+    assert normalized["focal_length_mm"] == 35.0
+    assert normalized["lens"] == "XF 35mm"
+    assert normalized["gps_latitude"] == 45.899
+    assert normalized["gps_longitude"] == 6.129
+
+
+def test_extract_normalized_metadata_accepts_exif_json_string(monkeypatch):
+    service_postgre = _install_postgre_config(monkeypatch)
+
+    normalized = service_postgre._extract_normalized_metadata(
+        {
+            "exif": '{"F Number":"2.8","ISO Speed Ratings":"400","Focal Length":"35 mm"}',
+        }
+    )
+
+    assert normalized["aperture_f_number"] == 2.8
+    assert normalized["iso"] == 400
+    assert normalized["focal_length_mm"] == 35.0
+
+
+def test_extract_normalized_metadata_converts_exif_aperture_value(monkeypatch):
+    service_postgre = _install_postgre_config(monkeypatch)
+
+    normalized = service_postgre._extract_normalized_metadata(
+        {
+            "exif": {
+                "ApertureValue": 2.970854,
+            },
+        }
+    )
+
+    assert round(normalized["aperture_f_number"], 1) == 2.8
+
+
+def test_extract_normalized_metadata_accepts_historical_nested_metadata(monkeypatch):
+    service_postgre = _install_postgre_config(monkeypatch)
+
+    normalized = service_postgre._extract_normalized_metadata(
+        {
+            "metadata": {
+                "exif": {
+                    "F Number": "2.8",
+                    "ISO Speed Ratings": "400",
+                    "Focal Length": "35 mm",
+                }
+            }
+        }
+    )
+
+    assert normalized["aperture_f_number"] == 2.8
+    assert normalized["iso"] == 400
+    assert normalized["focal_length_mm"] == 35.0
+
+
 def test_upsert_record_sends_normalized_columns(monkeypatch):
     service_postgre = _install_postgre_config(monkeypatch)
     captured = {}

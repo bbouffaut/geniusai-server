@@ -164,9 +164,9 @@ class AnalysisService:
         if len(uuids_needing_metadata) > 0:
             logger.info(f"Generating metadata for {len(uuids_needing_metadata)} images out of {len(uuids)} total")
             logger.info(f"UUIDs needing metadata: {uuids_needing_metadata}")
-            # Filter to only process images that need metadata
+            # Select only the images in this batch that need generated metadata.
             filtered_triplets = [(image_data[i], uuids[i], '') for i, uuid in enumerate(uuids) if uuid in uuids_needing_metadata]
-            logger.info(f"Filtered to {len(filtered_triplets)} triplets for metadata generation")
+            logger.info(f"Selected {len(filtered_triplets)} triplets for metadata generation")
             partial_results = self._generate_metadata_batch([t[1] for t in filtered_triplets], 
                                                            [t[0] for t in filtered_triplets], 
                                                            options)
@@ -184,9 +184,9 @@ class AnalysisService:
         if len(uuids_needing_quality) > 0:
             logger.info(f"Generating quality scores for {len(uuids_needing_quality)} images out of {len(uuids)} total")
             logger.info(f"UUIDs needing quality: {uuids_needing_quality}")
-            # Filter to only process images that need quality scores
+            # Select only the images in this batch that need quality scores.
             filtered_triplets = [(image_data[i], uuids[i], '') for i, uuid in enumerate(uuids) if uuid in uuids_needing_quality]
-            logger.info(f"Filtered to {len(filtered_triplets)} triplets for quality generation")
+            logger.info(f"Selected {len(filtered_triplets)} triplets for quality generation")
             partial_ratings = self._get_quality_scores_batch([t[1] for t in filtered_triplets], 
                                                             [t[0] for t in filtered_triplets], 
                                                             options)

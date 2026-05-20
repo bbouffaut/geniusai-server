@@ -149,7 +149,56 @@ def _merge_additional_metadata(base_metadata, additional_metadata):
     for key, value in additional_metadata.items():
         if key in _RESERVED_METADATA_KEYS:
             continue
+        if isinstance(base_metadata.get(key), dict) and isinstance(value, dict):
+            merged_value = base_metadata[key].copy()
+            merged_value.update(value)
+            base_metadata[key] = merged_value
+            continue
         base_metadata[key] = value
+
+
+def _build_base_metadata(uuid, filename, options, extra_metadata=None, existing=None):
+    if existing:
+        main_metadata = existing.copy()
+    else:
+        main_metadata = {
+            "provider": options.get("provider") if options else None,
+            "model": options.get("model") if options else None,
+        }
+
+    _merge_additional_metadata(main_metadata, extra_metadata)
+
+    main_metadata["filename"] = filename
+    main_metadata["uuid"] = uuid
+    main_metadata["run_date"] = time.now().strftime("%Y-%m-%d %H:%M:%S")
+    _ensure_search_fields(main_metadata, options)
+    return main_metadata
+
+
+def _prestore_new_image_metadata(image_triplets, options, additional_metadata_list):
+    prestored_count = 0
+
+    for index, (_image_bytes, uuid, filename) in enumerate(image_triplets):
+        if postgre_service.get_image(uuid) is not None:
+            continue
+
+        extra_metadata = (
+            additional_metadata_list[index]
+            if additional_metadata_list is not None
+            else None
+        )
+        base_metadata = _build_base_metadata(
+            uuid,
+            filename,
+            options,
+            extra_metadata=extra_metadata,
+        )
+        base_metadata["has_embedding"] = False
+        postgre_service.update_image(uuid, base_metadata, embedding=None, document=None)
+        prestored_count += 1
+
+    if prestored_count:
+        logger.info(f"Pre-stored base metadata for {prestored_count} new photo(s) before generation.")
 
 
 _NON_SEARCHABLE_METADATA_KEYS = {
@@ -322,6 +371,12 @@ def process_image_task(
         logger.info(f"Generation needed: {len(images_needing_embeddings)} embeddings, "
                    f"{len(images_needing_metadata)} metadata, {len(images_needing_quality)} quality scores")
 
+        _prestore_new_image_metadata(
+            image_triplets,
+            options,
+            additional_metadata_list,
+        )
+
         # If absolutely nothing needs to be generated, treat this as a successful no-op
         if len(images_needing_embeddings) == 0 and len(images_needing_metadata) == 0 and len(images_needing_quality) == 0:
             logger.info("No generation required (regenerate_metadata=False and all fields present). Returning success without changes.")
@@ -370,19 +425,13 @@ def process_image_task(
                     continue
 
                 # Start with existing metadata if not regenerating
-                if not regenerate_metadata and existing:
-                    main_metadata = existing.copy()
-                else:
-                    main_metadata = {
-                        "provider": provider,
-                        "model": model_name,
-                    }
-
-                _merge_additional_metadata(main_metadata, extra_metadata)
-
-                # Update only basic fields that should always be current
-                main_metadata["filename"] = filename
-                main_metadata["uuid"] = uuid
+                main_metadata = _build_base_metadata(
+                    uuid,
+                    filename,
+                    options,
+                    extra_metadata=extra_metadata,
+                    existing=existing.copy() if not regenerate_metadata and existing else None,
+                )
 
                 # Update quality scores if newly generated
                 if rating_data and rating_data.success:
@@ -414,8 +463,6 @@ def process_image_task(
                         main_metadata["model"] = model_name
 
                 _store_generation_model_keyword(main_metadata)
-                main_metadata['run_date'] = time.now().strftime("%Y-%m-%d %H:%M:%S")
-                _ensure_search_fields(main_metadata, options)
 
                 if replace_ss:
                     for key, value in main_metadata.items():
@@ -426,19 +473,19 @@ def process_image_task(
                 if need_embedding:
                     document = _build_metadata_embedding_document(main_metadata)
                     if not document:
-                        logger.error(f"No metadata text available for embedding {uuid}. Skipping.")
-                        failure_count += 1
-                        continue
+                        logger.error(f"No metadata text available for embedding {uuid}. Storing metadata without embedding.")
+                        embedding = None
+                        document = None
+                    else:
+                        embedding = server_lifecycle.embed_document(document)
+                        if embedding is None:
+                            logger.error(f"Metadata embedding generation failed for {uuid}. Storing metadata without embedding.")
+                            document = None
 
-                    embedding = server_lifecycle.embed_document(document)
-                    if embedding is None:
-                        logger.error(f"Metadata embedding generation failed for {uuid}. Skipping.")
-                        failure_count += 1
-                        continue
-
-                    main_metadata["metadata_search_text"] = document
-                    main_metadata["embedding_source"] = "metadata"
-                    main_metadata["embedding_model"] = TEXT_EMBEDDING_MODEL_ID
+                    if embedding is not None:
+                        main_metadata["metadata_search_text"] = document
+                        main_metadata["embedding_source"] = "metadata"
+                        main_metadata["embedding_model"] = TEXT_EMBEDDING_MODEL_ID
 
                 # Update embedding status
                 if embedding is not None:
