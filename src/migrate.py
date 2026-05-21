@@ -121,11 +121,29 @@ def _iter_source_pages(page_size: int):
             offset += len(rows)
 
 
+def _existing_uuids(uuids: list) -> set:
+    """Return the subset of *uuids* that already exist in the target database."""
+    if not uuids:
+        return set()
+    with service_postgre._connect_to_target() as conn:
+        rows = conn.execute(
+            "SELECT uuid FROM photo_metadata WHERE uuid = ANY(%s)",
+            (uuids,),
+        ).fetchall()
+    return {row[0] for row in rows}
+
+
 def _flush(batch: list) -> tuple:
     """Embed and upsert one batch into the target database.
 
-    Returns (inserted, no_doc_count, failed) counts for the batch.
+    Photos whose UUID already exists in the target are skipped entirely.
+    Returns (inserted, no_doc_count, failed, skipped) counts for the batch.
     """
+    existing = _existing_uuids([uuid for uuid, _, _ in batch])
+    skipped  = len(existing)
+    if existing:
+        batch = [(uuid, meta, doc) for uuid, meta, doc in batch if uuid not in existing]
+
     with_doc    = [(uuid, meta, doc) for uuid, meta, doc in batch if doc]
     without_doc = [(uuid, meta)      for uuid, meta, doc in batch if not doc]
 
@@ -166,7 +184,7 @@ def _flush(batch: list) -> tuple:
             logger.error(f"Failed to insert {uuid} (no document): {exc}")
             failed += 1
 
-    return inserted, len(without_doc), failed
+    return inserted, len(without_doc), failed, skipped
 
 
 def migrate() -> None:
@@ -192,20 +210,23 @@ def migrate() -> None:
     total_inserted = 0
     total_no_doc   = 0
     total_failed   = 0
+    total_skipped  = 0
 
     for page in _iter_source_pages(mig_args.batch_size):
-        inserted, no_doc, failed = _flush(page)
+        inserted, no_doc, failed, skipped = _flush(page)
         total_inserted += inserted
         total_no_doc   += no_doc
         total_failed   += failed
+        total_skipped  += skipped
         logger.info(
             f"Progress — inserted: {total_inserted}, "
-            f"without-embedding: {total_no_doc}, failed: {total_failed}"
+            f"without-embedding: {total_no_doc}, skipped: {total_skipped}, failed: {total_failed}"
         )
 
     logger.info(
         f"Migration complete: {total_inserted} photos copied "
-        f"({total_no_doc} stored without embeddings), {total_failed} failed."
+        f"({total_no_doc} stored without embeddings), {total_skipped} already present skipped, "
+        f"{total_failed} failed."
     )
     if total_failed:
         sys.exit(1)
