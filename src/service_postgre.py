@@ -584,6 +584,22 @@ def _ensure_initialized():
                 """
             )
 
+    try:
+        with _connect_to_target() as conn:
+            conn.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS photo_metadata_document_trgm_idx
+                ON photo_metadata USING gin (document gin_trgm_ops)
+                WHERE document IS NOT NULL
+                """
+            )
+    except psycopg.Error as e:
+        logger.warning(
+            f"Could not create pg_trgm index on document column. "
+            f"Text search will still work but may be slower: {e}"
+        )
+
     _initialized = True
 
 
@@ -1010,17 +1026,104 @@ def _metadata_numeric_filter_clause_with_column(filter_item, column_name):
     )
 
 
+_NUMERIC_COLUMN_FIELD_MAP = {
+    "iso": "iso",
+    "iso_speed_rating": "iso",
+    "iso_speed_ratings": "iso",
+    "focal_length_mm": "focal_length_mm",
+    "focal_length": "focal_length_mm",
+    "focal_length_35mm": "focal_length_35mm",
+    "focal_length35mm": "focal_length_35mm",
+    "shutter_speed": "shutter_speed",
+    "shutter": "shutter_speed",
+    "exposure_bias": "exposure_bias",
+    "exposurebias": "exposure_bias",
+}
+
+_TEXT_ILIKE_COLUMN_FIELD_MAP = {
+    "camera_make": "camera_make",
+    "make": "camera_make",
+    "camera_model": "camera_model",
+    "camera": "camera_model",
+    "lens": "lens",
+    "lens_model": "lens",
+}
+
+
+def _text_column_ilike_filter_clause(filter_item, column_name):
+    value = filter_item.get("value")
+    if not value:
+        return None, []
+    return (
+        sql.SQL("({column} IS NOT NULL AND {column} ILIKE %s)").format(
+            column=sql.Identifier(column_name),
+        ),
+        [f"%{value}%"],
+    )
+
+
+def _metadata_text_ilike_filter_clause(filter_item):
+    paths = _metadata_paths_for_filter(filter_item)
+    if not paths:
+        return None, []
+    value = filter_item.get("value")
+    if not value:
+        return None, []
+    pattern = f"%{value}%"
+    clauses = []
+    params = []
+    for path in paths:
+        clauses.append(
+            sql.SQL("({value_expr} ILIKE %s)").format(value_expr=_metadata_path_expr())
+        )
+        params.extend([path, pattern])
+    return sql.SQL("(") + sql.SQL(" OR ").join(clauses) + sql.SQL(")"), params
+
+
+def _metadata_ilike_filter_clause_with_column(filter_item, column_name):
+    column_clause, column_params = _text_column_ilike_filter_clause(filter_item, column_name)
+    fallback_clause, fallback_params = _metadata_text_ilike_filter_clause(filter_item)
+    if column_clause is None:
+        return fallback_clause, fallback_params
+    if fallback_clause is None:
+        return column_clause, column_params
+    return (
+        (
+            sql.SQL("(")
+            + column_clause
+            + sql.SQL(" OR ({column} IS NULL AND ").format(column=sql.Identifier(column_name))
+            + fallback_clause
+            + sql.SQL("))")
+        ),
+        [*column_params, *fallback_params],
+    )
+
+
 def _metadata_filter_clause(filter_item):
     field = str(filter_item.get("field", "")).strip().casefold()
     op = str(filter_item.get("op", "")).casefold()
+
     if field == "capture_time":
         return _metadata_text_filter_clause_with_column(
             filter_item,
             _capture_time_column_filter_clause(filter_item),
             "capture_time",
         )
-    if field in {"aperture", "aperture_f_number", "f_number", "fnumber", "f_stop", "fstop"} or op.startswith("number"):
+
+    if field in {"aperture", "aperture_f_number", "f_number", "fnumber", "f_stop", "fstop"}:
         return _metadata_numeric_filter_clause_with_column(filter_item, "aperture_f_number")
+
+    col = _NUMERIC_COLUMN_FIELD_MAP.get(field)
+    if col:
+        return _metadata_numeric_filter_clause_with_column(filter_item, col)
+
+    col = _TEXT_ILIKE_COLUMN_FIELD_MAP.get(field)
+    if col:
+        return _metadata_ilike_filter_clause_with_column(filter_item, col)
+
+    if op.startswith("number"):
+        return _metadata_numeric_filter_clause_with_column(filter_item, "aperture_f_number")
+
     return _metadata_text_filter_clause(filter_item)
 
 
@@ -1096,6 +1199,47 @@ def query_images(query_embedding, n_results, where_clause=None, include_embeddin
         if include_embeddings:
             fallback["embeddings"] = [[]]
         return fallback
+
+
+def search_document_text(term, where_clause=None, limit=300):
+    """Return {uuid: metadata} for rows where document ILIKE term, with optional column filters.
+
+    If term is None or empty, only column filters from where_clause are applied.
+    Returns an empty dict when both term and filters are absent to avoid a full-table fetch.
+    """
+    _ensure_initialized()
+
+    filter_clauses, filter_params = _filter_clauses(where_clause)
+
+    if not term and not filter_clauses:
+        return {}
+
+    conditions = list(filter_clauses)
+    all_params = list(filter_params)
+
+    if term:
+        conditions.insert(0, sql.SQL("document ILIKE %s"))
+        all_params.insert(0, f"%{term}%")
+
+    where_sql = sql.SQL("WHERE ") + sql.SQL(" AND ").join(conditions)
+
+    query = sql.SQL(
+        """
+        SELECT uuid, metadata
+        FROM photo_metadata
+        {where_sql}
+        LIMIT %s
+        """
+    ).format(where_sql=where_sql)
+    all_params.append(limit)
+
+    try:
+        with _connect_to_target() as conn:
+            rows = conn.execute(query, all_params).fetchall()
+        return {row[0]: row[1] or {} for row in rows}
+    except Exception as e:
+        logger.error(f"Error in search_document_text: {e}", exc_info=True)
+        return {}
 
 
 def get_image_metadatas(ids=None, where_clause=None, include_embedding=False):

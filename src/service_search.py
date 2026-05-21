@@ -54,6 +54,38 @@ APERTURE_RE = re.compile(
     r"\b(?:f\s*/?\s*|f-?number\s*|f-?stop\s*|aperture\s*)([0-9]+(?:\.[0-9]+)?)\b",
     re.IGNORECASE,
 )
+ISO_RE = re.compile(r"\biso\s*[-:]?\s*([0-9]+)\b", re.IGNORECASE)
+FOCAL_LENGTH_RE = re.compile(
+    r"(?<![-\d])(?<![/])([0-9]+(?:\.[0-9]+)?)\s*mm\b",
+    re.IGNORECASE,
+)
+SHUTTER_FRACTION_RE = re.compile(
+    r"\b1\s*/\s*([0-9]{2,5})\b",
+    re.IGNORECASE,
+)
+SHUTTER_SECONDS_RE = re.compile(
+    r"\b([0-9]+(?:\.[0-9]+)?)\s*(?:seconds?|sec)\b",
+    re.IGNORECASE,
+)
+EXPOSURE_BIAS_RE = re.compile(
+    r"([+-][0-9]+(?:\.[0-9]+)?)\s*(?:ev|stops?)?\b|\b([0-9]+(?:\.[0-9]+)?)\s*(?:ev|stops?)\b",
+    re.IGNORECASE,
+)
+
+_CAMERA_MAKE_NAMES = sorted(
+    [
+        "canon", "nikon", "sony", "fujifilm", "fuji",
+        "olympus", "panasonic", "leica", "hasselblad",
+        "ricoh", "pentax", "sigma", "apple", "samsung", "dji", "gopro",
+    ],
+    key=len,
+    reverse=True,
+)
+CAMERA_MAKE_RE = re.compile(
+    r"\b(?:" + "|".join(re.escape(m) for m in _CAMERA_MAKE_NAMES) + r")\b",
+    re.IGNORECASE,
+)
+
 QUERY_EDGE_FILLER_WORDS = {"with", "at", "on", "in", "during", "from", "for", "of"}
 
 
@@ -257,55 +289,108 @@ def _aperture_filter(value, source):
     }
 
 
+def _iso_filter(value, source):
+    try:
+        iso = int(float(value))
+    except (TypeError, ValueError):
+        return None
+    if iso <= 0:
+        return None
+    return {"field": "iso", "op": "number_eq", "value": float(iso), "tolerance": 0.0, "source": source}
+
+
+def _focal_length_filter(value, source):
+    try:
+        mm = float(value)
+    except (TypeError, ValueError):
+        return None
+    if mm <= 0:
+        return None
+    return {"field": "focal_length_mm", "op": "number_eq", "value": mm, "tolerance": 1.0, "source": source}
+
+
+def _shutter_speed_filter(seconds, source):
+    try:
+        speed = float(seconds)
+    except (TypeError, ValueError):
+        return None
+    if speed <= 0:
+        return None
+    tolerance = max(speed * 0.15, 1e-6)
+    return {"field": "shutter_speed", "op": "number_eq", "value": speed, "tolerance": tolerance, "source": source}
+
+
+def _exposure_bias_filter(value, source):
+    try:
+        ev = float(value)
+    except (TypeError, ValueError):
+        return None
+    return {"field": "exposure_bias", "op": "number_eq", "value": ev, "tolerance": 0.1, "source": source}
+
+
+def _camera_make_filter(value, source):
+    text = str(value).strip()
+    if not text:
+        return None
+    return {"field": "camera_make", "op": "ilike", "value": text, "source": source}
+
+
+def _add_filter_from_match(filters, spans, match, filter_item):
+    if filter_item is None or _span_overlaps(match.span(), spans):
+        return
+    filters.append(filter_item)
+    spans.append(match.span())
+
+
 def _parse_search_query(term):
     filters = []
     spans = []
     text = str(term or "")
 
     for match in ISO_DATE_RE.finditer(text):
-        _add_date_filter_from_match(
-            filters,
-            spans,
-            match,
-            _parse_iso_date_match(match),
-            "query_date",
-        )
+        _add_date_filter_from_match(filters, spans, match, _parse_iso_date_match(match), "query_date")
 
     for match in MONTH_YEAR_RE.finditer(text):
         _add_date_filter_from_match(
-            filters,
-            spans,
-            match,
-            _parse_month_year_match(match.group(1), match.group(2)),
-            "query_month",
+            filters, spans, match,
+            _parse_month_year_match(match.group(1), match.group(2)), "query_month",
         )
 
     for match in YEAR_MONTH_RE.finditer(text):
         _add_date_filter_from_match(
-            filters,
-            spans,
-            match,
-            _parse_month_year_match(match.group(2), match.group(1)),
-            "query_month",
+            filters, spans, match,
+            _parse_month_year_match(match.group(2), match.group(1)), "query_month",
         )
 
     for match in ISO_MONTH_RE.finditer(text):
-        _add_date_filter_from_match(
-            filters,
-            spans,
-            match,
-            _parse_iso_month_match(match),
-            "query_month",
-        )
+        _add_date_filter_from_match(filters, spans, match, _parse_iso_month_match(match), "query_month")
 
     for match in APERTURE_RE.finditer(text):
-        if _span_overlaps(match.span(), spans):
+        _add_filter_from_match(filters, spans, match, _aperture_filter(match.group(1), "query_aperture"))
+
+    for match in ISO_RE.finditer(text):
+        _add_filter_from_match(filters, spans, match, _iso_filter(match.group(1), "query_iso"))
+
+    for match in FOCAL_LENGTH_RE.finditer(text):
+        _add_filter_from_match(filters, spans, match, _focal_length_filter(match.group(1), "query_focal_length"))
+
+    for match in SHUTTER_FRACTION_RE.finditer(text):
+        denominator = match.group(1)
+        try:
+            speed = 1.0 / float(denominator)
+        except (ValueError, ZeroDivisionError):
             continue
-        aperture_filter = _aperture_filter(match.group(1), "query_aperture")
-        if aperture_filter is None:
-            continue
-        filters.append(aperture_filter)
-        spans.append(match.span())
+        _add_filter_from_match(filters, spans, match, _shutter_speed_filter(speed, "query_shutter"))
+
+    for match in SHUTTER_SECONDS_RE.finditer(text):
+        _add_filter_from_match(filters, spans, match, _shutter_speed_filter(match.group(1), "query_shutter"))
+
+    for match in EXPOSURE_BIAS_RE.finditer(text):
+        value = match.group(1) or match.group(2)
+        _add_filter_from_match(filters, spans, match, _exposure_bias_filter(value, "query_exposure_bias"))
+
+    for match in CAMERA_MAKE_RE.finditer(text):
+        _add_filter_from_match(filters, spans, match, _camera_make_filter(match.group(0), "query_camera_make"))
 
     semantic_term = _cleanup_semantic_query(_replace_spans_with_spaces(text, spans))
     return {
@@ -436,6 +521,15 @@ def _explicit_numeric_filter(field, value):
     }]
 
 
+def _explicit_text_ilike_filter(field, value):
+    if value in (None, "", [], {}):
+        return []
+    text = str(value).strip()
+    if not text:
+        return []
+    return [{"field": field, "op": "ilike", "value": text, "source": "explicit_filter"}]
+
+
 def _normalize_explicit_search_filters(search_filters):
     if not isinstance(search_filters, dict):
         return []
@@ -451,26 +545,38 @@ def _normalize_explicit_search_filters(search_filters):
         filters.extend(_explicit_capture_time_filters(capture_time_value))
 
         aperture_value = _case_insensitive_get(
-            payload,
-            "aperture",
-            "aperture_f_number",
-            "f_number",
-            "fnumber",
-            "f_stop",
-            "fstop",
+            payload, "aperture", "aperture_f_number", "f_number", "fnumber", "f_stop", "fstop",
         )
         filters.extend(_explicit_numeric_filter("aperture", aperture_value))
+
+        iso_value = _case_insensitive_get(payload, "iso", "iso_speed_rating", "iso_speed_ratings")
+        filters.extend(_explicit_numeric_filter("iso", iso_value))
+
+        focal_value = _case_insensitive_get(payload, "focal_length_mm", "focal_length", "focallength")
+        filters.extend(_explicit_numeric_filter("focal_length_mm", focal_value))
+
+        focal35_value = _case_insensitive_get(payload, "focal_length_35mm", "focal_length35mm")
+        filters.extend(_explicit_numeric_filter("focal_length_35mm", focal35_value))
+
+        shutter_value = _case_insensitive_get(payload, "shutter_speed", "shutter", "shutterspeed")
+        filters.extend(_explicit_numeric_filter("shutter_speed", shutter_value))
+
+        bias_value = _case_insensitive_get(payload, "exposure_bias", "exposurebias")
+        filters.extend(_explicit_numeric_filter("exposure_bias", bias_value))
+
+        make_value = _case_insensitive_get(payload, "camera_make", "make")
+        filters.extend(_explicit_text_ilike_filter("camera_make", make_value))
+
+        model_value = _case_insensitive_get(payload, "camera_model", "camera")
+        filters.extend(_explicit_text_ilike_filter("camera_model", model_value))
+
+        lens_value = _case_insensitive_get(payload, "lens", "lens_model", "lensmodel")
+        filters.extend(_explicit_text_ilike_filter("lens", lens_value))
 
         exif_value = _case_insensitive_get(payload, "exif")
         if isinstance(exif_value, dict):
             exif_aperture = _case_insensitive_get(
-                exif_value,
-                "aperture",
-                "aperture_f_number",
-                "f_number",
-                "fnumber",
-                "f_stop",
-                "fstop",
+                exif_value, "aperture", "aperture_f_number", "f_number", "fnumber", "f_stop", "fstop",
             )
             filters.extend(_explicit_numeric_filter("aperture", exif_aperture))
 
@@ -559,6 +665,43 @@ def _build_search_result(uuid, metadata, distance, pertinence_score, match_type,
     return result
 
 
+def _log_query_plan(term, semantic_term, query_filters, explicit_filters, uuids_to_search, min_pertinence_score):
+    lines = [f"[search] Query plan for '{term}'"]
+
+    if semantic_term and semantic_term != term:
+        lines.append(f"  semantic term : '{semantic_term}' (extracted from query)")
+    elif semantic_term:
+        lines.append(f"  semantic term : '{semantic_term}'")
+    else:
+        lines.append("  semantic term : (none — fully consumed by filters)")
+
+    if query_filters:
+        for f in query_filters:
+            field = f.get("field", "?")
+            op = f.get("op", "?")
+            value = f.get("value")
+            tol = f.get("tolerance")
+            tol_str = f" ±{tol}" if tol else ""
+            lines.append(f"  filter (query): {field} {op} {value}{tol_str}  [{f.get('source', '')}]")
+    else:
+        lines.append("  filter (query): (none)")
+
+    if explicit_filters:
+        for f in explicit_filters:
+            field = f.get("field", "?")
+            op = f.get("op", "?")
+            value = f.get("value")
+            lines.append(f"  filter (explicit): {field} {op} {value}")
+
+    if uuids_to_search is not None:
+        lines.append(f"  uuid scope   : {len(uuids_to_search)} UUIDs")
+    else:
+        lines.append("  uuid scope   : all photos")
+
+    lines.append(f"  min score    : {min_pertinence_score}")
+    logger.debug("\n".join(lines))
+
+
 def _log_retrieved_photos(term, final_results, metadata_by_id):
     if not final_results:
         logger.info(f"Search results for '{term}': no photos retrieved")
@@ -634,92 +777,81 @@ def search_images(
     min_pertinence_score=DEFAULT_MIN_PERTINENCE_SCORE,
     search_filters=None,
 ):
+    # --- Stage 1: Query parsing ---
     parsed_query = _parse_search_query(term)
-    metadata_filters = [
-        *parsed_query["metadata_filters"],
-        *_normalize_explicit_search_filters(search_filters),
-    ]
+    query_filters = parsed_query["metadata_filters"]
+    explicit_filters = _normalize_explicit_search_filters(search_filters)
+    metadata_filters = [*query_filters, *explicit_filters]
     semantic_term = parsed_query["semantic_term"]
     if not semantic_term and not metadata_filters:
         semantic_term = term
 
+    _log_query_plan(term, semantic_term, query_filters, explicit_filters, uuids_to_search, min_pertinence_score)
+
     where_clause = _build_search_where_clause(uuids_to_search, metadata_filters)
 
-    logger.info(
-        f"Searching for '{term}' (quality_sort: {quality_sort}, scoped: {uuids_to_search is not None}, "
-        f"min_pertinence_score: {min_pertinence_score}, semantic_term: '{semantic_term}', "
-        f"metadata_filters: {metadata_filters})"
-    )
-
-    # 1. Semantic search over metadata text embeddings
+    # --- Stage 2: Semantic vector search ---
     query_embedding = server_lifecycle.embed_query(semantic_term) if semantic_term else None
     if query_embedding is not None:
+        logger.debug(f"[search] Stage 2: semantic vector search for '{semantic_term}' (top 300, threshold={min_pertinence_score})")
         db_results = postgre_service.query_images(
             query_embedding=query_embedding,
             n_results=300,
             where_clause=where_clause,
             include_embeddings=True,
         )
-
         sorted_semantic_results = _transform_and_sort_results(
-            db_results,
-            quality_sort,
-            query_embedding,
-            min_pertinence_score,
+            db_results, quality_sort, query_embedding, min_pertinence_score,
         )
         semantic_uuids = {res['uuid'] for res in sorted_semantic_results}
+        logger.debug(f"[search] Stage 2 done: {len(sorted_semantic_results)} results above threshold")
     else:
-        logger.info("Text embedding model not loaded or semantic term is empty, skipping semantic metadata search.")
+        reason = "embedding model not loaded" if not server_lifecycle.embed_query else "no semantic term after filter extraction"
+        logger.debug(f"[search] Stage 2: skipped ({reason})")
         sorted_semantic_results = []
         semantic_uuids = set()
 
-    # 2. Metadata Search (in-memory)
-    logger.info("Performing exact metadata search in-memory. This may be slow for large databases without a UUID filter.")
-
-    if uuids_to_search:
-        target_uuids = list(uuids_to_search)
-        all_metadata_raw = _get_filtered_metadatas(ids=target_uuids, where_clause=where_clause)
+    # --- Stage 3: SQL document text search ---
+    doc_term = semantic_term or None
+    filter_desc = f"{len(metadata_filters)} column filter(s)" if metadata_filters else "no column filters"
+    if doc_term:
+        logger.debug(f"[search] Stage 3: document ILIKE '%{doc_term}%' + {filter_desc}")
     else:
-        all_metadata_raw = _get_filtered_metadatas(where_clause=where_clause)
+        logger.debug(f"[search] Stage 3: column-filters-only query ({filter_desc})")
 
-    metadata_by_id = _metadata_by_uuid(all_metadata_raw)
-    metadata_uuids = set()
-    metadata_search_term = semantic_term.strip()
-    normalized_term = _normalize_search_text(metadata_search_term) if metadata_search_term else ""
+    text_match_rows = postgre_service.search_document_text(
+        term=doc_term,
+        where_clause=where_clause,
+    )
+    text_match_uuids = set(text_match_rows.keys())
+    logger.debug(f"[search] Stage 3 done: {len(text_match_uuids)} document matches")
 
-    for i, uuid in enumerate(all_metadata_raw['ids']):
-        metadata = all_metadata_raw['metadatas'][i]
-        if not metadata:
-            continue
+    # --- Stage 4: Merge & rank ---
+    overlap = len(semantic_uuids & text_match_uuids)
+    logger.debug(
+        f"[search] Stage 4: merging — {len(semantic_uuids)} semantic, "
+        f"{len(text_match_uuids)} text, {overlap} overlap"
+    )
 
-        if not normalized_term and metadata_filters:
-            metadata_uuids.add(uuid)
-            continue
-
-        metadata_text = _metadata_value_to_search_text(metadata)
-        if normalized_term and normalized_term in _normalize_search_text(metadata_text):
-            metadata_uuids.add(uuid)
-
-    # 3. Combine results
     for result in sorted_semantic_results:
-        if result['uuid'] in metadata_uuids:
+        if result['uuid'] in text_match_uuids:
             result['metadata_match'] = True
             result['match_type'] = "semantic+metadata"
 
-    metadata_only_uuids = metadata_uuids - semantic_uuids
-    metadata_only_results = [
+    text_only_uuids = text_match_uuids - semantic_uuids
+    text_only_results = [
         _build_search_result(
             uuid,
-            metadata_by_id.get(uuid, {}),
+            text_match_rows[uuid],
             None,
             1.0,
             "metadata",
             metadata_match=True,
         )
-        for uuid in metadata_only_uuids
+        for uuid in text_only_uuids
     ]
 
-    final_results = sorted_semantic_results + metadata_only_results
+    final_results = sorted_semantic_results + text_only_results
     final_results.sort(
         key=lambda x: (
             -x['pertinence_score'],
@@ -727,7 +859,16 @@ def search_images(
         )
     )
 
-    logger.info(f"Total results: {len(final_results)} ({len(sorted_semantic_results)} semantic, {len(metadata_only_results)} metadata-only)")
+    metadata_by_id = dict(text_match_rows)
+    for result in sorted_semantic_results:
+        if result['uuid'] not in metadata_by_id:
+            metadata_by_id[result['uuid']] = result.get('metadata', {})
+
+    logger.info(
+        f"[search] Done: {len(final_results)} result(s) for '{term}' "
+        f"({len(sorted_semantic_results)} semantic, {len(text_only_results)} text-only, "
+        f"{overlap} both)"
+    )
     _log_retrieved_photos(term, final_results, metadata_by_id)
 
     return final_results
