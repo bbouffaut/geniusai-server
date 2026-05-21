@@ -14,7 +14,9 @@
 #
 # Optional:
 #   --batch-size <N>         Photos per GPU batch (default: 32)
-#   --fetch-models           Download model from HuggingFace Hub if not cached
+#
+# Model downloading is always enabled: if the target model is not in the local
+# cache it will be fetched from HuggingFace Hub automatically.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -25,7 +27,6 @@ export KMP_DUPLICATE_LIB_OK=TRUE
 DOTENV_FILE=""
 TARGET_DB=""
 TARGET_MODEL=""
-FETCH_MODELS_FLAG=""
 BATCH_SIZE="32"
 
 # First pass: extract --dotenv so env vars are set before the main parse.
@@ -58,6 +59,9 @@ if [[ -n "$DOTENV_FILE" ]]; then
   load_dotenv "$DOTENV_FILE"
 fi
 
+# Mirror run.sh: default to ./cache if not set in the dotenv or environment.
+MODEL_CACHE_PATH="${MODEL_CACHE_PATH:-./cache}"
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --target-db)
@@ -69,8 +73,6 @@ while [[ $# -gt 0 ]]; do
     --batch-size)
       [[ $# -lt 2 ]] && { echo "error: --batch-size requires a value" >&2; exit 1; }
       BATCH_SIZE="$2"; shift 2 ;;
-    --fetch-models)
-      FETCH_MODELS_FLAG="--fetch-models"; shift ;;
     --dotenv|--env-file)
       [[ $# -lt 2 ]] && { echo "error: $1 requires a value" >&2; exit 1; }
       shift 2 ;;  # already handled in the first pass
@@ -109,7 +111,5 @@ cmd=(
   --target-model "$TARGET_MODEL"
   --batch-size   "$BATCH_SIZE"
 )
-
-[[ -n "$FETCH_MODELS_FLAG" ]] && cmd+=("$FETCH_MODELS_FLAG")
 
 exec "${cmd[@]}"

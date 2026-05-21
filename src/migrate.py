@@ -27,7 +27,7 @@ _SOURCE_DB       = os.environ.get("GENIUSAI_DATABASE_NAME")
 _POSTGRE_URL     = os.environ.get("GENIUSAI_POSTGRES_URL", "postgresql://localhost:5432/postgres")
 _POSTGRE_USER    = os.environ.get("GENIUSAI_POSTGRES_USER")
 _POSTGRE_PASSWORD = os.environ.get("GENIUSAI_POSTGRES_PASSWORD")
-_MODEL_CACHE_PATH = os.environ.get("GENIUSAI_MODEL_CACHE_PATH")
+_MODEL_CACHE_PATH = os.environ.get("MODEL_CACHE_PATH")  # same var as run.sh
 
 if not _SOURCE_DB:
     print(
@@ -57,20 +57,19 @@ _mig_parser.add_argument(
     "--batch-size", type=int, default=32, metavar="N",
     help="Number of photos to embed per GPU batch",
 )
-_mig_parser.add_argument(
-    "--fetch-models", action="store_true",
-    help="Allow downloading models from HuggingFace Hub if not cached",
-)
 mig_args = _mig_parser.parse_args()
 
 # Build a synthetic sys.argv that satisfies config.py's required flags.
 # config.py is pointed at the TARGET database/model because service_postgre
 # writes to the target.
+# --fetch-models is always enabled: migration may use a model not yet cached,
+# so downloading must be allowed unconditionally.
 sys.argv = [
     sys.argv[0],
     "--embedding-model", mig_args.target_model,
     "--database-name",   mig_args.target_db,
     "--postgre-url",     _POSTGRE_URL,
+    "--fetch-models",
 ]
 if _POSTGRE_USER:
     sys.argv += ["--postgre-user", _POSTGRE_USER]
@@ -78,8 +77,6 @@ if _POSTGRE_PASSWORD:
     sys.argv += ["--postgre-password", _POSTGRE_PASSWORD]
 if _MODEL_CACHE_PATH:
     sys.argv += ["--model-cache-path", _MODEL_CACHE_PATH]
-if mig_args.fetch_models:
-    sys.argv.append("--fetch-models")
 
 # Ensure src/ is on the module search path when called from the repo root.
 _src_dir = os.path.dirname(os.path.abspath(__file__))
