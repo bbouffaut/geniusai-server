@@ -37,6 +37,19 @@ def _parse_min_pertinence_score(data):
     return score, None
 
 
+def _parse_limit(data):
+    raw = _request_value(data, 'limit')
+    if raw is None:
+        return 300, None
+    try:
+        limit = int(raw)
+    except (ValueError, TypeError):
+        return None, "Invalid limit value"
+    if limit < 1 or limit > 10000:
+        return None, "limit must be between 1 and 10000"
+    return limit, None
+
+
 def _parse_return_metadata(data):
     raw_value = _request_value(data, 'return_metadata', 'returnMetadata')
     if raw_value is None:
@@ -87,17 +100,22 @@ def search_route():
     try:
         data = (request.get_json(silent=True) if request.is_json else {}) or {}
 
-        term = request.args.get('term') or data.get('term')
-        if not term:
-            return jsonify({"error": "No search term provided"}), 400
+        term = (request.args.get('term') or data.get('term') or "").strip()
+        search_filters = data.get('filters') if isinstance(data.get('filters'), dict) else None
+
+        if not term and not search_filters:
+            return jsonify({"error": "Provide a search term, explicit filters, or both"}), 400
 
         min_pertinence_score, error = _parse_min_pertinence_score(data)
         if error:
             return jsonify({"error": error}), 400
 
+        limit, error = _parse_limit(data)
+        if error:
+            return jsonify({"error": error}), 400
+
         return_metadata = _parse_return_metadata(data)
         quality_sort = request.args.get('quality_sort', None) or data.get('quality_sort')
-        search_filters = data.get('filters') if isinstance(data.get('filters'), dict) else None
 
         uuids_to_search = None
         if request.method == 'POST' and request.is_json:
@@ -109,6 +127,7 @@ def search_route():
             uuids_to_search,
             min_pertinence_score,
             search_filters=search_filters,
+            limit=limit,
         )
         projected_results = [_project_search_result(result, return_metadata) for result in sorted_results]
         return jsonify(projected_results)

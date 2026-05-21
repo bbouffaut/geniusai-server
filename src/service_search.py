@@ -665,36 +665,43 @@ def _build_search_result(uuid, metadata, distance, pertinence_score, match_type,
     return result
 
 
-def _log_query_plan(term, semantic_term, query_filters, explicit_filters, uuids_to_search, min_pertinence_score):
+def _log_query_plan(term, semantic_term, query_filters, explicit_filters,
+                    uuids_to_search, min_pertinence_score, limit, mode="query-parsing"):
     if DEBUG_LEVEL < 2:
         return
 
-    lines = [f"[search] Query plan for '{term}'"]
+    lines = [f"[search] Query plan for '{term}'  (mode: {mode})"]
 
     if semantic_term and semantic_term != term:
         lines.append(f"  semantic term : '{semantic_term}' (extracted from query)")
     elif semantic_term:
         lines.append(f"  semantic term : '{semantic_term}'")
     else:
-        lines.append("  semantic term : (none — fully consumed by filters)")
+        lines.append("  semantic term : (none — skipped or fully consumed by filters)")
 
-    if query_filters:
-        for f in query_filters:
-            field = f.get("field", "?")
-            op = f.get("op", "?")
-            value = f.get("value")
-            tol = f.get("tolerance")
-            tol_str = f" ±{tol}" if tol else ""
-            lines.append(f"  filter (query): {field} {op} {value}{tol_str}  [{f.get('source', '')}]")
+    if mode == "explicit-filters":
+        if explicit_filters:
+            for f in explicit_filters:
+                field = f.get("field", "?")
+                op = f.get("op", "?")
+                value = f.get("value")
+                tol = f.get("tolerance")
+                tol_str = f" ±{tol}" if tol else ""
+                lines.append(f"  filter        : {field} {op} {value}{tol_str}")
+        else:
+            lines.append("  filter        : (none)")
+        lines.append("  query parsing : disabled (explicit filters take full control)")
     else:
-        lines.append("  filter (query): (none)")
-
-    if explicit_filters:
-        for f in explicit_filters:
-            field = f.get("field", "?")
-            op = f.get("op", "?")
-            value = f.get("value")
-            lines.append(f"  filter (explicit): {field} {op} {value}")
+        if query_filters:
+            for f in query_filters:
+                field = f.get("field", "?")
+                op = f.get("op", "?")
+                value = f.get("value")
+                tol = f.get("tolerance")
+                tol_str = f" ±{tol}" if tol else ""
+                lines.append(f"  filter (query): {field} {op} {value}{tol_str}  [{f.get('source', '')}]")
+        else:
+            lines.append("  filter (query): (none)")
 
     if uuids_to_search is not None:
         lines.append(f"  uuid scope   : {len(uuids_to_search)} UUIDs")
@@ -702,6 +709,7 @@ def _log_query_plan(term, semantic_term, query_filters, explicit_filters, uuids_
         lines.append("  uuid scope   : all photos")
 
     lines.append(f"  min score    : {min_pertinence_score}")
+    lines.append(f"  limit        : {limit}")
     logger.debug("\n".join(lines))
 
 
@@ -783,17 +791,33 @@ def search_images(
     uuids_to_search,
     min_pertinence_score=DEFAULT_MIN_PERTINENCE_SCORE,
     search_filters=None,
+    limit=300,
 ):
     # --- Stage 1: Query parsing ---
-    parsed_query = _parse_search_query(term)
-    query_filters = parsed_query["metadata_filters"]
-    explicit_filters = _normalize_explicit_search_filters(search_filters)
-    metadata_filters = [*query_filters, *explicit_filters]
-    semantic_term = parsed_query["semantic_term"]
-    if not semantic_term and not metadata_filters:
-        semantic_term = term
+    # When explicit filters are provided in the request body, the term is used
+    # purely for semantic vector search — no filter extraction is attempted.
+    # When there are no explicit filters, the term is parsed to extract structured
+    # column filters (date, aperture, ISO, …) and the remainder becomes the
+    # semantic term.
+    if search_filters:
+        query_filters = []
+        explicit_filters = _normalize_explicit_search_filters(search_filters)
+        metadata_filters = explicit_filters
+        semantic_term = (term or "").strip()
+    else:
+        parsed_query = _parse_search_query(term)
+        query_filters = parsed_query["metadata_filters"]
+        explicit_filters = []
+        metadata_filters = query_filters
+        semantic_term = parsed_query["semantic_term"]
+        if not semantic_term and not metadata_filters:
+            semantic_term = term
 
-    _log_query_plan(term, semantic_term, query_filters, explicit_filters, uuids_to_search, min_pertinence_score)
+    _log_query_plan(
+        term, semantic_term, query_filters, explicit_filters,
+        uuids_to_search, min_pertinence_score, limit,
+        mode="explicit-filters" if search_filters else "query-parsing",
+    )
 
     where_clause = _build_search_where_clause(uuids_to_search, metadata_filters)
 
@@ -801,10 +825,10 @@ def search_images(
     query_embedding = server_lifecycle.embed_query(semantic_term) if semantic_term else None
     if query_embedding is not None:
         if DEBUG_LEVEL >= 1:
-            logger.debug(f"[search] Stage 2: semantic vector search for '{semantic_term}' (top 300, threshold={min_pertinence_score})")
+            logger.debug(f"[search] Stage 2: semantic vector search for '{semantic_term}' (top {limit}, threshold={min_pertinence_score})")
         db_results = postgre_service.query_images(
             query_embedding=query_embedding,
-            n_results=300,
+            n_results=limit,
             where_clause=where_clause,
             include_embeddings=True,
         )
@@ -833,6 +857,7 @@ def search_images(
     text_match_rows = postgre_service.search_document_text(
         term=doc_term,
         where_clause=where_clause,
+        limit=limit,
     )
     text_match_uuids = set(text_match_rows.keys())
     if DEBUG_LEVEL >= 1:
