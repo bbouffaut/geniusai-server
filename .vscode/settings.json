@@ -18,6 +18,18 @@
             "database": "geniusai-server_qwen3-embedding-0.6b",
             "username": "admin",
             "password": "superuserpassword"
+        },
+        {
+            "ssh": "Disabled",
+            "previewLimit": 50,
+            "server": "10.10.0.233",
+            "port": 32345,
+            "driver": "PostgreSQL",
+            "name": "geniusai-server_bge-m3",
+            "group": "Skails postgre",
+            "database": "geniusai-server_bge-m3",
+            "username": "admin",
+            "password": "superuserpassword"
         }
     ]
 }
