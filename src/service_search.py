@@ -9,6 +9,21 @@ import service_postgre as postgre_service
 from config import DEBUG_LEVEL, DEFAULT_MIN_PERTINENCE_SCORE, logger
 import server_lifecycle as server_lifecycle
 
+def _accent_fold(text):
+    """Strip combining diacritics (accents) without changing character positions.
+
+    For European Latin text each accented character decomposes to one base character
+    plus one or more combining marks; removing the marks leaves a string of the same
+    length, so span offsets from the folded text map 1-to-1 back to the original.
+    This lets us match month names regardless of how the user typed them
+    (e.g. "Février", "fevrier" and "FEVRIER" all reduce to "fevrier").
+    """
+    return "".join(
+        c for c in unicodedata.normalize("NFKD", text)
+        if not unicodedata.combining(c)
+    )
+
+
 QUALITY_SCORE_FIELDS = [
     ("overall", "overall_score"),
     ("composition", "composition_score"),
@@ -19,30 +34,43 @@ QUALITY_SCORE_FIELDS = [
 ]
 
 MONTH_NAMES = {
-    "jan": 1,
-    "january": 1,
-    "feb": 2,
-    "february": 2,
-    "mar": 3,
-    "march": 3,
-    "apr": 4,
-    "april": 4,
+    # English
+    "jan": 1, "january": 1,
+    "feb": 2, "february": 2,
+    "mar": 3, "march": 3,
+    "apr": 4, "april": 4,
     "may": 5,
-    "jun": 6,
-    "june": 6,
-    "jul": 7,
-    "july": 7,
-    "aug": 8,
-    "august": 8,
-    "sep": 9,
-    "sept": 9,
-    "september": 9,
-    "oct": 10,
-    "october": 10,
-    "nov": 11,
-    "november": 11,
-    "dec": 12,
-    "december": 12,
+    "jun": 6, "june": 6,
+    "jul": 7, "july": 7,
+    "aug": 8, "august": 8,
+    "sep": 9, "sept": 9, "september": 9,
+    "oct": 10, "october": 10,
+    "nov": 11, "november": 11,
+    "dec": 12, "december": 12,
+    # French (accent-folded; accents are stripped before lookup — see _accent_fold)
+    "janv": 1, "janvier": 1,
+    "fevr": 2, "fevrier": 2,
+    "mars": 3,
+    "avr": 4, "avril": 4,
+    "mai": 5,
+    "juin": 6,
+    "juil": 7, "juillet": 7,
+    "aout": 8,
+    "septembre": 9,
+    "octobre": 10,
+    "novembre": 11,
+    "decembre": 12,
+    # German (accent-folded)
+    "januar": 1, "februar": 2, "marz": 3, "juni": 6,
+    "juli": 7, "oktober": 10, "dezember": 12,
+    # Spanish / Portuguese
+    "enero": 1, "febrero": 2, "marzo": 3, "abril": 4, "mayo": 5,
+    "junio": 6, "julio": 7, "agosto": 8, "septiembre": 9,
+    "octubre": 10, "noviembre": 11, "diciembre": 12,
+    # Italian
+    "gennaio": 1, "febbraio": 2, "marzo": 3, "aprile": 4, "maggio": 5,
+    "giugno": 6, "luglio": 7, "agosto": 8, "settembre": 9,
+    "ottobre": 10, "novembre": 11, "dicembre": 12,
 }
 
 MONTH_PATTERN = "|".join(sorted(MONTH_NAMES.keys(), key=len, reverse=True))
@@ -347,34 +375,39 @@ def _parse_search_query(term):
     spans = []
     text = str(term or "")
 
-    for match in ISO_DATE_RE.finditer(text):
+    # Fold accents so that e.g. "Février", "fevrier" and "FEVRIER" all match the
+    # same dictionary entries.  For European Latin text, NFKD folding is a 1-to-1
+    # character mapping, so span offsets from `folded` apply unchanged to `text`.
+    folded = _accent_fold(text)
+
+    for match in ISO_DATE_RE.finditer(folded):
         _add_date_filter_from_match(filters, spans, match, _parse_iso_date_match(match), "query_date")
 
-    for match in MONTH_YEAR_RE.finditer(text):
+    for match in MONTH_YEAR_RE.finditer(folded):
         _add_date_filter_from_match(
             filters, spans, match,
             _parse_month_year_match(match.group(1), match.group(2)), "query_month",
         )
 
-    for match in YEAR_MONTH_RE.finditer(text):
+    for match in YEAR_MONTH_RE.finditer(folded):
         _add_date_filter_from_match(
             filters, spans, match,
             _parse_month_year_match(match.group(2), match.group(1)), "query_month",
         )
 
-    for match in ISO_MONTH_RE.finditer(text):
+    for match in ISO_MONTH_RE.finditer(folded):
         _add_date_filter_from_match(filters, spans, match, _parse_iso_month_match(match), "query_month")
 
-    for match in APERTURE_RE.finditer(text):
+    for match in APERTURE_RE.finditer(folded):
         _add_filter_from_match(filters, spans, match, _aperture_filter(match.group(1), "query_aperture"))
 
-    for match in ISO_RE.finditer(text):
+    for match in ISO_RE.finditer(folded):
         _add_filter_from_match(filters, spans, match, _iso_filter(match.group(1), "query_iso"))
 
-    for match in FOCAL_LENGTH_RE.finditer(text):
+    for match in FOCAL_LENGTH_RE.finditer(folded):
         _add_filter_from_match(filters, spans, match, _focal_length_filter(match.group(1), "query_focal_length"))
 
-    for match in SHUTTER_FRACTION_RE.finditer(text):
+    for match in SHUTTER_FRACTION_RE.finditer(folded):
         denominator = match.group(1)
         try:
             speed = 1.0 / float(denominator)
@@ -382,16 +415,18 @@ def _parse_search_query(term):
             continue
         _add_filter_from_match(filters, spans, match, _shutter_speed_filter(speed, "query_shutter"))
 
-    for match in SHUTTER_SECONDS_RE.finditer(text):
+    for match in SHUTTER_SECONDS_RE.finditer(folded):
         _add_filter_from_match(filters, spans, match, _shutter_speed_filter(match.group(1), "query_shutter"))
 
-    for match in EXPOSURE_BIAS_RE.finditer(text):
+    for match in EXPOSURE_BIAS_RE.finditer(folded):
         value = match.group(1) or match.group(2)
         _add_filter_from_match(filters, spans, match, _exposure_bias_filter(value, "query_exposure_bias"))
 
-    for match in CAMERA_MAKE_RE.finditer(text):
+    for match in CAMERA_MAKE_RE.finditer(folded):
         _add_filter_from_match(filters, spans, match, _camera_make_filter(match.group(0), "query_camera_make"))
 
+    # Build the semantic term from the ORIGINAL text so accents are preserved
+    # for the embedding model, then strip the filter spans that were consumed.
     semantic_term = _cleanup_semantic_query(_replace_spans_with_spaces(text, spans))
     return {
         "semantic_term": semantic_term,
@@ -710,7 +745,7 @@ def _log_query_plan(term, semantic_term, query_filters, explicit_filters,
 
     lines.append(f"  min score    : {min_pertinence_score}")
     lines.append(f"  limit        : {limit}")
-    logger.debug("\n".join(lines))
+    logger.info("\n".join(lines))
 
 
 def _log_retrieved_photos(term, final_results, metadata_by_id):
@@ -825,7 +860,7 @@ def search_images(
     query_embedding = server_lifecycle.embed_query(semantic_term) if semantic_term else None
     if query_embedding is not None:
         if DEBUG_LEVEL >= 1:
-            logger.debug(f"[search] Stage 2: semantic vector search for '{semantic_term}' (top {limit}, threshold={min_pertinence_score})")
+            logger.info(f"[search] Stage 2: semantic vector search for '{semantic_term}' (top {limit}, threshold={min_pertinence_score})")
         db_results = postgre_service.query_images(
             query_embedding=query_embedding,
             n_results=limit,
@@ -837,11 +872,11 @@ def search_images(
         )
         semantic_uuids = {res['uuid'] for res in sorted_semantic_results}
         if DEBUG_LEVEL >= 1:
-            logger.debug(f"[search] Stage 2 done: {len(sorted_semantic_results)} results above threshold")
+            logger.info(f"[search] Stage 2 done: {len(sorted_semantic_results)} results above threshold")
     else:
         if DEBUG_LEVEL >= 1:
             reason = "embedding model not loaded" if not server_lifecycle.embed_query else "no semantic term after filter extraction"
-            logger.debug(f"[search] Stage 2: skipped ({reason})")
+            logger.info(f"[search] Stage 2: skipped ({reason})")
         sorted_semantic_results = []
         semantic_uuids = set()
 
@@ -850,9 +885,9 @@ def search_images(
     if DEBUG_LEVEL >= 1:
         filter_desc = f"{len(metadata_filters)} column filter(s)" if metadata_filters else "no column filters"
         if doc_term:
-            logger.debug(f"[search] Stage 3: document ILIKE '%{doc_term}%' + {filter_desc}")
+            logger.info(f"[search] Stage 3: document ILIKE '%{doc_term}%' + {filter_desc}")
         else:
-            logger.debug(f"[search] Stage 3: column-filters-only query ({filter_desc})")
+            logger.info(f"[search] Stage 3: column-filters-only query ({filter_desc})")
 
     text_match_rows = postgre_service.search_document_text(
         term=doc_term,
@@ -861,12 +896,12 @@ def search_images(
     )
     text_match_uuids = set(text_match_rows.keys())
     if DEBUG_LEVEL >= 1:
-        logger.debug(f"[search] Stage 3 done: {len(text_match_uuids)} document matches")
+        logger.info(f"[search] Stage 3 done: {len(text_match_uuids)} document matches")
 
     # --- Stage 4: Merge & rank ---
     overlap = len(semantic_uuids & text_match_uuids)
     if DEBUG_LEVEL >= 1:
-        logger.debug(
+        logger.info(
             f"[search] Stage 4: merging — {len(semantic_uuids)} semantic, "
             f"{len(text_match_uuids)} text, {overlap} overlap"
         )

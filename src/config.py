@@ -2,25 +2,41 @@ import argparse
 import logging
 import sys
 import os
-import re
 import torch
 
-# --- Model & Path Definitions ---
-TEXT_EMBEDDING_MODEL_ID = "Qwen/Qwen3-Embedding-0.6B"
-TEXT_EMBEDDING_DIMENSION = 1024
-TEXT_EMBEDDING_QUERY_INSTRUCTION = "Given a photo metadata search query, retrieve relevant photo metadata records"
-TEXT_EMBEDDING_MAX_LENGTH = 512
+# ---------------------------------------------------------------------------
+# Supported embedding models
+# Each entry drives every aspect of how texts are embedded: which HuggingFace
+# model to load, the vector dimension stored in pgvector, the pooling strategy,
+# the token budget, and whether queries should carry an instruction prefix.
+#
+# pooling values:
+#   "last_token" – last non-padding hidden state (decoder-style, e.g. Qwen3)
+#   "cls"        – first token / CLS hidden state (encoder-style, e.g. BGE-M3)
+#   "mean"       – attention-masked mean of all token hidden states (e.g. E5)
+#
+# query_instruction: prepended as "Instruct: …\nQuery: …" for instruction-
+#   aware models; set to None for models that use plain text for both sides.
+# ---------------------------------------------------------------------------
+EMBEDDING_MODELS = {
+    "qwen3-0.6b": {
+        "model_id": "Qwen/Qwen3-Embedding-0.6B",
+        "dimension": 1024,
+        "pooling": "last_token",
+        "max_length": 512,
+        "query_instruction": (
+            "Given a photo metadata search query, retrieve relevant photo metadata records"
+        ),
+    },
+    "bge-m3": {
+        "model_id": "BAAI/bge-m3",
+        "dimension": 1024,
+        "pooling": "cls",
+        "max_length": 8192,      # BGE-M3 supports long contexts – no more truncation
+        "query_instruction": None,  # plain text for both queries and documents
+    },
+}
 
-
-def _normalize_database_part(value):
-    normalized = re.sub(r"[^a-zA-Z0-9_.-]+", "_", str(value).strip().lower())
-    normalized = re.sub(r"_+", "_", normalized).strip("_.-")
-    return normalized or "default"
-
-
-def build_database_name(llm_id, embedding_id):
-    base_name = f"{_normalize_database_part(llm_id)}-{_normalize_database_part(embedding_id)}"
-    return base_name[:63].rstrip("_.-") or "geniusai"
 
 
 # --- Argument Parsing ---
@@ -53,7 +69,7 @@ parser.add_argument(
     '--database-name',
     type=str,
     default=os.environ.get("GENIUSAI_DATABASE_NAME"),
-    help='PostgreSQL database name to use. Defaults to <llm-id>-<embedding-id>.',
+    help='PostgreSQL database name (required — set via GENIUSAI_DATABASE_NAME or this flag).',
 )
 parser.add_argument(
     '--host',
@@ -85,7 +101,41 @@ parser.add_argument(
 parser.add_argument('--fetch-models', action='store_true', help='Fetch models from HF-Hub')
 parser.add_argument('--model-cache-path', type=str, help='Path to store/load the embedding model cache')
 parser.add_argument('--preload-models', action='store_true', help='Load embedding models during server startup')
+parser.add_argument(
+    '--embedding-model',
+    dest='embedding_model',
+    type=str,
+    default=os.environ.get("GENIUSAI_EMBEDDING_MODEL"),
+    choices=list(EMBEDDING_MODELS.keys()),
+    help=(
+        'Embedding model to use (required — set via GENIUSAI_EMBEDDING_MODEL or this flag). '
+        'Each model gets its own database so switching models requires re-indexing. '
+        + " | ".join(f"{k}: {v['model_id']}" for k, v in EMBEDDING_MODELS.items())
+    ),
+)
 args = parser.parse_args()
+
+if not args.embedding_model:
+    parser.error(
+        "Embedding model is required. "
+        "Set GENIUSAI_EMBEDDING_MODEL in your .env file or pass --embedding-model. "
+        "Supported models: " + ", ".join(EMBEDDING_MODELS.keys())
+    )
+if args.embedding_model not in EMBEDDING_MODELS:
+    parser.error(
+        f"Unknown embedding model: '{args.embedding_model}'. "
+        "Use the short key, not the full model ID. "
+        "Supported models: " + ", ".join(f"{k} ({v['model_id']})" for k, v in EMBEDDING_MODELS.items())
+    )
+
+# Resolve the selected embedding model config.
+# All downstream constants are derived from this single selection.
+_selected_embedding = EMBEDDING_MODELS[args.embedding_model]
+TEXT_EMBEDDING_MODEL_ID       = _selected_embedding["model_id"]
+TEXT_EMBEDDING_DIMENSION      = _selected_embedding["dimension"]
+TEXT_EMBEDDING_POOLING        = _selected_embedding["pooling"]
+TEXT_EMBEDDING_MAX_LENGTH     = _selected_embedding["max_length"]
+TEXT_EMBEDDING_QUERY_INSTRUCTION = _selected_embedding["query_instruction"]
 
 
 def _resolve_data_dir():
@@ -103,7 +153,12 @@ def _resolve_upload_temp_dir(data_dir):
 POSTGRE_URL = args.postgre_url
 POSTGRE_USER = args.postgre_user
 POSTGRE_PASSWORD = args.postgre_password
-POSTGRE_DATABASE_NAME = args.database_name or build_database_name(args.llm_id, args.embedding_id)
+if not args.database_name:
+    parser.error(
+        "Database name is required. "
+        "Set GENIUSAI_DATABASE_NAME in your .env file or pass --database-name."
+    )
+POSTGRE_DATABASE_NAME = args.database_name
 FETCH_MODELS = args.fetch_models
 MODEL_CACHE_PATH = os.path.abspath(os.path.expanduser(args.model_cache_path)) if args.model_cache_path else None
 PRELOAD_MODELS = args.preload_models
@@ -147,8 +202,11 @@ elif sys.platform == "win32":  # Windows
 else:  # Linux and other Unix-like platforms
     TORCH_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-# Legacy names kept for compatibility with older scripts/imports.
+# Legacy alias kept for compatibility with older scripts/imports.
 IMAGE_MODEL_ID = TEXT_EMBEDDING_MODEL_ID
+
+# Human-readable label shown in logs and status endpoints.
+EMBEDDING_MODEL_KEY = args.embedding_model
 
 LLM_BATCH_SIZE = 3  # Optimized batch size for better performance
 

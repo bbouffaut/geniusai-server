@@ -2,12 +2,14 @@ import os
 import time
 import signal
 from config import (
+    EMBEDDING_MODEL_KEY,
     FETCH_MODELS,
     MODEL_CACHE_PATH,
     OK_FILE_PATH,
     PID_FILE_PATH,
     TEXT_EMBEDDING_MAX_LENGTH,
     TEXT_EMBEDDING_MODEL_ID,
+    TEXT_EMBEDDING_POOLING,
     TEXT_EMBEDDING_QUERY_INSTRUCTION,
     TORCH_DEVICE,
     logger,
@@ -190,7 +192,11 @@ def load_model():
                     model = model_obj
                     tokenizer = tok
                     _set_last_used()
-                    logger.info("Loaded text embedding model (lazy)")
+                    logger.info(
+                        f"Loaded text embedding model: {TEXT_EMBEDDING_MODEL_ID} "
+                        f"(key={EMBEDDING_MODEL_KEY}, pooling={TEXT_EMBEDDING_POOLING}, "
+                        f"max_length={TEXT_EMBEDDING_MAX_LENGTH})"
+                    )
                 else:
                     raise FileNotFoundError("Text embedding model cache directory not found")
 
@@ -267,11 +273,17 @@ def _ensure_unloader_thread():
         _unloader_thread.start()
 
 
+# ---------------------------------------------------------------------------
+# Pooling strategies
+# Each function takes (last_hidden_states, attention_mask) and returns the
+# batch of sentence vectors before L2 normalisation.
+# ---------------------------------------------------------------------------
+
 def _last_token_pool(last_hidden_states, attention_mask):
+    """Last non-padding token – used by decoder-style models (Qwen3-Embedding)."""
     left_padding = attention_mask[:, -1].sum() == attention_mask.shape[0]
     if left_padding:
         return last_hidden_states[:, -1]
-
     sequence_lengths = attention_mask.sum(dim=1) - 1
     batch_size = last_hidden_states.shape[0]
     return last_hidden_states[
@@ -280,14 +292,37 @@ def _last_token_pool(last_hidden_states, attention_mask):
     ]
 
 
+def _cls_pool(last_hidden_states, attention_mask):
+    """CLS token (position 0) – used by encoder-style models (BGE-M3)."""
+    return last_hidden_states[:, 0]
+
+
+def _mean_pool(last_hidden_states, attention_mask):
+    """Attention-masked mean – used by E5-style models."""
+    mask = attention_mask.unsqueeze(-1).float()
+    return (last_hidden_states * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1e-9)
+
+
+_POOL_FN = {
+    "last_token": _last_token_pool,
+    "cls": _cls_pool,
+    "mean": _mean_pool,
+}
+
+
 def _format_embedding_input(text, input_type):
-    if input_type == "query" and not text.startswith("Instruct:"):
-        return f"Instruct: {TEXT_EMBEDDING_QUERY_INSTRUCTION}\nQuery:{text}"
+    """Prepend an instruction prefix for query texts when the model expects one."""
+    if input_type == "query" and TEXT_EMBEDDING_QUERY_INSTRUCTION and not text.startswith("Instruct:"):
+        return f"Instruct: {TEXT_EMBEDDING_QUERY_INSTRUCTION}\nQuery: {text}"
     return text
 
 
 def embed_texts(texts, input_type="document"):
-    """Encode texts into normalized metadata-search embeddings."""
+    """Encode texts into L2-normalised embedding vectors.
+
+    input_type: "query" or "document" – controls whether the instruction prefix
+    is prepended (for models that support it, e.g. Qwen3-Embedding).
+    """
     if isinstance(texts, str):
         texts = [texts]
 
@@ -305,6 +340,7 @@ def embed_texts(texts, input_type="document"):
         return None
 
     input_texts = [_format_embedding_input(text, input_type) for text in texts]
+    pool_fn = _POOL_FN.get(TEXT_EMBEDDING_POOLING, _last_token_pool)
 
     def _run_inference(device):
         batch = tokenizer(
@@ -316,7 +352,7 @@ def embed_texts(texts, input_type="document"):
         ).to(device)
         with torch.no_grad():
             outputs = model.to(device)(**batch)
-            embeddings = _last_token_pool(outputs.last_hidden_state, batch["attention_mask"])
+            embeddings = pool_fn(outputs.last_hidden_state, batch["attention_mask"])
             return F.normalize(embeddings, p=2, dim=1).cpu().numpy()
 
     try:
