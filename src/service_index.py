@@ -173,19 +173,23 @@ def _build_base_metadata(uuid, filename, options, extra_metadata=None):
 
 
 
-_NON_SEARCHABLE_METADATA_KEYS = {
-    "uuid",
-    "provider",
-    "model",
-    "run_date",
-    "ai_model",
-    "ai_rundate",
-    "capture_time",
-    "has_embedding",
-    "embedding_model",
-    "embedding_source",
-    "metadata_search_text",
-}
+# ---------------------------------------------------------------------------
+# Fields included in the embedding document (allowlist).
+# Only human-readable, semantically rich AI-generated fields are embedded.
+# Numeric EXIF fields (ISO, focal length, shutter speed, scores…) and
+# bookkeeping fields (uuid, filename, model, dates…) are intentionally
+# excluded — they dilute the semantic vector and are handled by SQL column
+# filters instead.
+# The order matters: richer descriptions first so the model sees them early.
+# ---------------------------------------------------------------------------
+_SEARCHABLE_METADATA_KEYS = [
+    "title",
+    "caption",
+    "alt_text",
+    "keywords",
+    "flattened_keywords",
+    "quality_critique",
+]
 
 
 def _metadata_value_to_text(value):
@@ -220,12 +224,14 @@ def _metadata_value_to_text(value):
 
 
 def _build_metadata_embedding_document(metadata):
-    """Build a searchable text document from the metadata stored for a photo."""
-    parts = []
-    for key in sorted(metadata.keys()):
-        if key in _NON_SEARCHABLE_METADATA_KEYS or key.startswith("_"):
-            continue
+    """Build a searchable text document from the metadata stored for a photo.
 
+    Only the fields listed in _SEARCHABLE_METADATA_KEYS are included.
+    The resulting string is both stored in the ``document`` DB column and
+    passed to the embedding model, so they are always identical.
+    """
+    parts = []
+    for key in _SEARCHABLE_METADATA_KEYS:
         value_text = _metadata_value_to_text(metadata.get(key))
         if value_text:
             parts.append(f"{key.replace('_', ' ')}: {value_text}")
