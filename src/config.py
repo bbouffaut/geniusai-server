@@ -9,7 +9,7 @@ import torch
 TEXT_EMBEDDING_MODEL_ID = "Qwen/Qwen3-Embedding-0.6B"
 TEXT_EMBEDDING_DIMENSION = 1024
 TEXT_EMBEDDING_QUERY_INSTRUCTION = "Given a photo metadata search query, retrieve relevant photo metadata records"
-TEXT_EMBEDDING_MAX_LENGTH = 8192
+TEXT_EMBEDDING_MAX_LENGTH = 512
 
 
 def _normalize_database_part(value):

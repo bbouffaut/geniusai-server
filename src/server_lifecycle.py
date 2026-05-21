@@ -306,22 +306,33 @@ def embed_texts(texts, input_type="document"):
 
     input_texts = [_format_embedding_input(text, input_type) for text in texts]
 
-    try:
+    def _run_inference(device):
         batch = tokenizer(
             input_texts,
             max_length=TEXT_EMBEDDING_MAX_LENGTH,
             padding=True,
             truncation=True,
             return_tensors="pt",
-        ).to(TORCH_DEVICE)
-
+        ).to(device)
         with torch.no_grad():
-            outputs = model(**batch)
+            outputs = model.to(device)(**batch)
             embeddings = _last_token_pool(outputs.last_hidden_state, batch["attention_mask"])
-            normalized_embeddings = F.normalize(embeddings, p=2, dim=1)
-            _set_last_used()
-            return normalized_embeddings.cpu().numpy()
+            return F.normalize(embeddings, p=2, dim=1).cpu().numpy()
+
+    try:
+        result = _run_inference(TORCH_DEVICE)
+        _set_last_used()
+        return result
     except Exception as e:
+        if TORCH_DEVICE != "cpu" and ("out of memory" in str(e).lower() or "mps" in str(e).lower()):
+            logger.warning(f"Inference on {TORCH_DEVICE} failed ({e}), retrying on CPU.")
+            try:
+                result = _run_inference("cpu")
+                _set_last_used()
+                return result
+            except Exception as cpu_e:
+                logger.error(f"Failed to generate text embeddings on CPU fallback: {cpu_e}", exc_info=True)
+                return None
         logger.error(f"Failed to generate text embeddings: {e}", exc_info=True)
         return None
 
