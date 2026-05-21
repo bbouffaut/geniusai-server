@@ -94,16 +94,12 @@ SERVER_HOST="${GENIUSAI_SERVER_HOST:-}"
 SERVER_PORT="${GENIUSAI_SERVER_PORT:-}"
 MODEL_CACHE_PATH="${MODEL_CACHE_PATH:-./cache}"
 FETCH_MODELS_FLAG=""
-DEBUG_FLAG=""
+DEBUG_LEVEL_VALUE="${GENIUSAI_DEBUG_LEVEL:-}"
 DEBUG_IN_FILE_PATH="${GENIUSAI_DEBUG_IN_FILE:-}"
 PRELOAD_MODELS_FLAG="--preload-models"
 
 if [[ -n "${GENIUSAI_FETCH_MODELS:-}" ]] && is_truthy "${GENIUSAI_FETCH_MODELS}"; then
   FETCH_MODELS_FLAG="--fetch-models"
-fi
-
-if [[ -n "${GENIUSAI_DEBUG:-}" ]] && is_truthy "${GENIUSAI_DEBUG}"; then
-  DEBUG_FLAG="--debug"
 fi
 
 if [[ -n "${GENIUSAI_PRELOAD_MODELS:-}" ]]; then
@@ -120,9 +116,13 @@ while [[ $# -gt 0 ]]; do
       FETCH_MODELS_FLAG="--fetch-models"
       shift
       ;;
-    --debug)
-      DEBUG_FLAG="--debug"
-      shift
+    --debug-level)
+      if [[ $# -lt 2 ]]; then
+        echo "error: --debug-level requires a value (0, 1, or 2)" >&2
+        exit 1
+      fi
+      DEBUG_LEVEL_VALUE="$2"
+      shift 2
       ;;
     --debug-in-file)
       if [[ $# -lt 2 ]]; then
@@ -262,8 +262,8 @@ if [[ -n "$POSTGRE_PASSWORD" ]]; then
   cmd+=(--postgre-password "$POSTGRE_PASSWORD")
 fi
 
-if [[ -n "$DEBUG_FLAG" ]]; then
-  cmd+=("$DEBUG_FLAG")
+if [[ -n "$DEBUG_LEVEL_VALUE" ]]; then
+  cmd+=(--debug-level "$DEBUG_LEVEL_VALUE")
 fi
 
 if [[ -n "$DEBUG_IN_FILE_PATH" ]]; then

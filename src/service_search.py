@@ -6,7 +6,7 @@ from datetime import date, timedelta
 
 #import service_chroma as chroma_service
 import service_postgre as postgre_service
-from config import DEFAULT_MIN_PERTINENCE_SCORE, logger
+from config import DEBUG_LEVEL, DEFAULT_MIN_PERTINENCE_SCORE, logger
 import server_lifecycle as server_lifecycle
 
 QUALITY_SCORE_FIELDS = [
@@ -666,6 +666,9 @@ def _build_search_result(uuid, metadata, distance, pertinence_score, match_type,
 
 
 def _log_query_plan(term, semantic_term, query_filters, explicit_filters, uuids_to_search, min_pertinence_score):
+    if DEBUG_LEVEL < 2:
+        return
+
     lines = [f"[search] Query plan for '{term}'"]
 
     if semantic_term and semantic_term != term:
@@ -704,7 +707,11 @@ def _log_query_plan(term, semantic_term, query_filters, explicit_filters, uuids_
 
 def _log_retrieved_photos(term, final_results, metadata_by_id):
     if not final_results:
-        logger.info(f"Search results for '{term}': no photos retrieved")
+        if DEBUG_LEVEL >= 1:
+            logger.info(f"Search results for '{term}': no photos retrieved")
+        return
+
+    if DEBUG_LEVEL < 2:
         return
 
     lines = [f"Search results for '{term}': {len(final_results)} photo(s) retrieved"]
@@ -793,7 +800,8 @@ def search_images(
     # --- Stage 2: Semantic vector search ---
     query_embedding = server_lifecycle.embed_query(semantic_term) if semantic_term else None
     if query_embedding is not None:
-        logger.debug(f"[search] Stage 2: semantic vector search for '{semantic_term}' (top 300, threshold={min_pertinence_score})")
+        if DEBUG_LEVEL >= 1:
+            logger.debug(f"[search] Stage 2: semantic vector search for '{semantic_term}' (top 300, threshold={min_pertinence_score})")
         db_results = postgre_service.query_images(
             query_embedding=query_embedding,
             n_results=300,
@@ -804,34 +812,39 @@ def search_images(
             db_results, quality_sort, query_embedding, min_pertinence_score,
         )
         semantic_uuids = {res['uuid'] for res in sorted_semantic_results}
-        logger.debug(f"[search] Stage 2 done: {len(sorted_semantic_results)} results above threshold")
+        if DEBUG_LEVEL >= 1:
+            logger.debug(f"[search] Stage 2 done: {len(sorted_semantic_results)} results above threshold")
     else:
-        reason = "embedding model not loaded" if not server_lifecycle.embed_query else "no semantic term after filter extraction"
-        logger.debug(f"[search] Stage 2: skipped ({reason})")
+        if DEBUG_LEVEL >= 1:
+            reason = "embedding model not loaded" if not server_lifecycle.embed_query else "no semantic term after filter extraction"
+            logger.debug(f"[search] Stage 2: skipped ({reason})")
         sorted_semantic_results = []
         semantic_uuids = set()
 
     # --- Stage 3: SQL document text search ---
     doc_term = semantic_term or None
-    filter_desc = f"{len(metadata_filters)} column filter(s)" if metadata_filters else "no column filters"
-    if doc_term:
-        logger.debug(f"[search] Stage 3: document ILIKE '%{doc_term}%' + {filter_desc}")
-    else:
-        logger.debug(f"[search] Stage 3: column-filters-only query ({filter_desc})")
+    if DEBUG_LEVEL >= 1:
+        filter_desc = f"{len(metadata_filters)} column filter(s)" if metadata_filters else "no column filters"
+        if doc_term:
+            logger.debug(f"[search] Stage 3: document ILIKE '%{doc_term}%' + {filter_desc}")
+        else:
+            logger.debug(f"[search] Stage 3: column-filters-only query ({filter_desc})")
 
     text_match_rows = postgre_service.search_document_text(
         term=doc_term,
         where_clause=where_clause,
     )
     text_match_uuids = set(text_match_rows.keys())
-    logger.debug(f"[search] Stage 3 done: {len(text_match_uuids)} document matches")
+    if DEBUG_LEVEL >= 1:
+        logger.debug(f"[search] Stage 3 done: {len(text_match_uuids)} document matches")
 
     # --- Stage 4: Merge & rank ---
     overlap = len(semantic_uuids & text_match_uuids)
-    logger.debug(
-        f"[search] Stage 4: merging — {len(semantic_uuids)} semantic, "
-        f"{len(text_match_uuids)} text, {overlap} overlap"
-    )
+    if DEBUG_LEVEL >= 1:
+        logger.debug(
+            f"[search] Stage 4: merging — {len(semantic_uuids)} semantic, "
+            f"{len(text_match_uuids)} text, {overlap} overlap"
+        )
 
     for result in sorted_semantic_results:
         if result['uuid'] in text_match_uuids:
@@ -864,11 +877,12 @@ def search_images(
         if result['uuid'] not in metadata_by_id:
             metadata_by_id[result['uuid']] = result.get('metadata', {})
 
-    logger.info(
-        f"[search] Done: {len(final_results)} result(s) for '{term}' "
-        f"({len(sorted_semantic_results)} semantic, {len(text_only_results)} text-only, "
-        f"{overlap} both)"
-    )
+    if DEBUG_LEVEL >= 1:
+        logger.info(
+            f"[search] Done: {len(final_results)} result(s) for '{term}' "
+            f"({len(sorted_semantic_results)} semantic, {len(text_only_results)} text-only, "
+            f"{overlap} both)"
+        )
     _log_retrieved_photos(term, final_results, metadata_by_id)
 
     return final_results
@@ -876,7 +890,8 @@ def search_images(
 
 def group_similar_images(uuids, phash_threshold, time_delta):
     """Groups a list of images by similarity and sorts them by quality."""
-    logger.info(f"Grouping {len(uuids)} UUIDs with phash_threshold='{phash_threshold}' and time_delta='{time_delta}s'.")
+    if DEBUG_LEVEL >= 1:
+        logger.info(f"Grouping {len(uuids)} UUIDs with phash_threshold='{phash_threshold}' and time_delta='{time_delta}s'.")
 
     try:
         grouped_results = postgre_service.group_and_sort_images(uuids, phash_threshold, time_delta)

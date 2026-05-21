@@ -9,6 +9,7 @@ from psycopg.conninfo import conninfo_to_dict, make_conninfo
 from psycopg.types.json import Jsonb
 
 from config import (
+    DEBUG_LEVEL,
     POSTGRE_DATABASE_NAME,
     POSTGRE_PASSWORD,
     POSTGRE_URL,
@@ -715,10 +716,12 @@ def _upsert_record(uuid, metadata, embedding=None, document=None, update_embeddi
 
 def add_image(uuid, embedding, metadata, document=None):
     _ensure_initialized()
-    logger.info(f"Saving image {uuid} to PostgreSQL (embedding={embedding is not None}, document={'yes' if document else 'no'})")
+    if DEBUG_LEVEL >= 1:
+        logger.info(f"Saving image {uuid} to PostgreSQL (embedding={embedding is not None}, document={'yes' if document else 'no'})")
     try:
         _upsert_record(uuid, metadata, embedding=embedding, document=document, update_embedding=embedding is not None)
-        logger.info(f"Image {uuid} saved successfully to PostgreSQL.")
+        if DEBUG_LEVEL >= 1:
+            logger.info(f"Image {uuid} saved successfully to PostgreSQL.")
     except Exception as e:
         logger.error(
             f"FAILED to save image {uuid} to PostgreSQL (embedding provided: {embedding is not None}): {e}",
@@ -736,7 +739,8 @@ def update_image(uuid, metadata, embedding=None, document=None):
         document=document,
         update_embedding=embedding is not None,
     )
-    logger.debug(f"image {uuid} is well UPSERTED in PostgreSQL. Metadata = {metadata}")
+    if DEBUG_LEVEL >= 2:
+        logger.debug(f"image {uuid} is well UPSERTED in PostgreSQL. Metadata = {metadata}")
 
 
 def get_image(uuid):

@@ -70,6 +70,14 @@ parser.add_argument(
 
 parser.add_argument('--debug', action='store_true', help='Enable debug mode with auto-reloading and debug log level')
 parser.add_argument(
+    '--debug-level',
+    type=int,
+    default=int(os.environ.get("GENIUSAI_DEBUG_LEVEL") or 0),
+    choices=[0, 1, 2],
+    dest='debug_level',
+    help='Debug verbosity: 0=off, 1=brief messages, 2=messages with data dumps',
+)
+parser.add_argument(
     '--debug-in-file',
     type=str,
     help='Write DEBUG logs and full LLM request payloads to this file',
@@ -100,6 +108,7 @@ FETCH_MODELS = args.fetch_models
 MODEL_CACHE_PATH = os.path.abspath(os.path.expanduser(args.model_cache_path)) if args.model_cache_path else None
 PRELOAD_MODELS = args.preload_models
 DEBUG_MODE = args.debug
+DEBUG_LEVEL = args.debug_level
 DEBUG_IN_FILE_PATH = (
     os.path.abspath(os.path.expanduser(args.debug_in_file))
     if args.debug_in_file
