@@ -667,7 +667,7 @@ def _build_search_result(uuid, metadata, distance, pertinence_score, match_type,
 
 def _log_query_plan(term, semantic_term, query_filters, explicit_filters,
                     uuids_to_search, min_pertinence_score, limit, mode="query-parsing"):
-    if DEBUG_LEVEL < 2:
+    if DEBUG_LEVEL < 1:
         return
 
     lines = [f"[search] Query plan for '{term}'  (mode: {mode})"]
