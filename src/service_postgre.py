@@ -1331,7 +1331,9 @@ def get_image_metadatas(ids=None, where_clause=None, include_embedding=False):
     filter_sql, filter_params = _filter_sql(effective_where_clause, "WHERE")
 
     if include_embedding:
-        select_cols = sql.SQL("uuid, metadata, document, embedding::text AS embedding")
+        select_cols = sql.SQL(
+            "uuid, metadata, document, embedding::text AS embedding, embedding_kw::text AS embedding_kw"
+        )
     else:
         select_cols = sql.SQL("uuid, metadata")
 
@@ -1354,6 +1356,7 @@ def get_image_metadatas(ids=None, where_clause=None, include_embedding=False):
             metadatas=[row[1] or {} for row in rows],
             documents=[row[2] for row in rows],
             embeddings=[_embedding_from_text(row[3]) for row in rows],
+            embeddings_kw=[_embedding_from_text(row[4]) for row in rows],
         )
     return _result([row[0] for row in rows], metadatas=[row[1] or {} for row in rows])
 

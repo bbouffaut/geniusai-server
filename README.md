@@ -78,6 +78,67 @@ PostgreSQL also stores denormalized typed columns from metadata on every insert/
 
 `/get` is a `POST` endpoint for fetching stored photos and their metadata/quality payloads. Send filters in the JSON body using direct fields or nested `filters`, `metadata`, and `quality` objects. Supported filters include `uuid`, `filename`, `ai_model`, `ai_rundate`, `capture_time`, `provider`, and any other stored metadata key. If the body is empty, `/get` returns every photo. The response contains `count` plus a `photos` array with each record's `metadata` and `quality`.
 
+### Maintenance
+
+#### `/re-index` — refresh embeddings without re-running the LLM
+
+Reads the stored metadata (caption, keywords) for photos already in the database and re-computes their embedding vectors locally. No images and no LLM calls are needed.
+
+Accepts both **GET** (query-string) and **POST** (JSON body):
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `embedding` | bool | `true` | Recompute the prose embedding from the caption text |
+| `embedding_kw` | bool | `true` | Recompute the keyword embedding from the flattened keywords |
+| `uuids` | string \| array | *(all)* | Comma-separated string or JSON array of UUIDs to process; omit to process every photo |
+
+```bash
+# Re-index all photos (both embedding columns)
+GET /re-index
+
+# Backfill only the new keyword embedding column, leave prose untouched
+GET /re-index?embedding=false&embedding_kw=true
+
+# Re-index specific photos via POST
+POST /re-index
+{"embedding": true, "embedding_kw": true, "uuids": ["uuid-1", "uuid-2"]}
+```
+
+Response:
+
+```json
+{"status": "ok", "total": 4821, "success_count": 4812, "skipped_count": 9, "failure_count": 0}
+```
+
+`skipped_count` is the number of photos that had no usable source text for the requested embedding type (e.g. no caption was ever generated). HTTP `207` is returned when `failure_count > 0`.
+
+Typical use cases:
+- After activating the dual-embedding feature — run `?embedding=false&embedding_kw=true` to populate `embedding_kw` for existing photos without touching their prose vectors.
+- After switching provider or model for metadata generation — run with both flags to rebuild from the freshly updated captions/keywords.
+
+#### `/migrate` — copy a database to a new embedding model
+
+Copies all photos from the server's current database into a new database re-encoded with a different embedding model. The connection stays open and streams live progress as newline-delimited JSON (NDJSON) until the migration completes.
+
+```
+POST /migrate
+{
+  "target_db":    "my-db-bge-m3",   // required — name of the destination database
+  "target_model": "bge-m3",         // required — one of the supported model keys
+  "batch_size":   32                // optional, default 32
+}
+```
+
+Each photo is re-embedded by the target model in the subprocess; the source database is not modified. Returns `409 Conflict` (plain JSON, non-streaming) if a migration is already running.
+
+```
+GET /migrate
+```
+
+Returns the status of the current or most recent migration (`idle` / `running` / `completed` / `failed`). Returns `404` if no migration has ever been started.
+
+Supported embedding model keys are the same ones accepted by `--embedding-model` at server startup (e.g. `qwen3-0.6b`, `bge-m3`).
+
 ### Models selection
 - is done at the client side
 - Default is ollama -> Needs to have a ollama listening locally on 11434 port

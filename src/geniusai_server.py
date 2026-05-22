@@ -28,6 +28,7 @@ logger.info("Imported server_lifecycle")
 # Import blueprints only (services are imported by routes when needed)
 from routes_get import get_bp
 from routes_index import index_bp
+from routes_reindex import reindex_bp
 from routes_search import search_bp
 from routes_server import server_bp
 from routes_import import import_bp
@@ -174,6 +175,7 @@ def log_incoming_request_for_debug_file():
 # Register blueprints
 app.register_blueprint(get_bp)
 app.register_blueprint(index_bp)
+app.register_blueprint(reindex_bp)
 app.register_blueprint(search_bp)
 app.register_blueprint(server_bp)
 app.register_blueprint(import_bp)

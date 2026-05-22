@@ -30,6 +30,18 @@
             "database": "geniusai-server_bge-m3",
             "username": "admin",
             "password": "superuserpassword"
+        },
+        {
+            "ssh": "Disabled",
+            "previewLimit": 50,
+            "server": "localhost",
+            "port": 32345,
+            "driver": "PostgreSQL",
+            "name": "geniusai-server_bge-m3",
+            "group": "Skails postgre LOCAL",
+            "database": "geniusai-server_bge-m3",
+            "username": "admin",
+            "password": "superuserpassword"
         }
     ]
 }
