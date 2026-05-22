@@ -540,6 +540,11 @@ def _ensure_initialized():
                 )
             )
         conn.execute(
+            sql.SQL(
+                "ALTER TABLE photo_metadata ADD COLUMN IF NOT EXISTS embedding_kw vector({dimension})"
+            ).format(dimension=sql.Literal(TEXT_EMBEDDING_DIMENSION))
+        )
+        conn.execute(
             """
             CREATE INDEX IF NOT EXISTS photo_metadata_metadata_gin_idx
             ON photo_metadata USING gin (metadata)
@@ -582,6 +587,30 @@ def _ensure_initialized():
                 ON photo_metadata USING ivfflat (embedding vector_cosine_ops)
                 WITH (lists = 100)
                 WHERE embedding IS NOT NULL
+                """
+            )
+
+    try:
+        with _connect_to_target() as conn:
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS photo_metadata_embedding_kw_hnsw_idx
+                ON photo_metadata USING hnsw (embedding_kw vector_cosine_ops)
+                WHERE embedding_kw IS NOT NULL
+                """
+            )
+    except psycopg.Error as e:
+        logger.warning(
+            "Could not create pgvector HNSW index for embedding_kw. "
+            f"Keyword-embedding search will still work but may be slower: {e}"
+        )
+        with _connect_to_target() as conn:
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS photo_metadata_embedding_kw_ivfflat_idx
+                ON photo_metadata USING ivfflat (embedding_kw vector_cosine_ops)
+                WITH (lists = 100)
+                WHERE embedding_kw IS NOT NULL
                 """
             )
 
@@ -634,13 +663,15 @@ def _embedding_from_text(value):
     return [float(item) for item in stripped.strip("[]").split(",") if item]
 
 
-def _result(ids, metadatas=None, embeddings=None, documents=None, distances=None, grouped=False):
+def _result(ids, metadatas=None, embeddings=None, embeddings_kw=None, documents=None, distances=None, grouped=False):
     if grouped:
         payload = {"ids": [ids]}
         if metadatas is not None:
             payload["metadatas"] = [metadatas]
         if embeddings is not None:
             payload["embeddings"] = [embeddings]
+        if embeddings_kw is not None:
+            payload["embeddings_kw"] = [embeddings_kw]
         if documents is not None:
             payload["documents"] = [documents]
         if distances is not None:
@@ -652,6 +683,8 @@ def _result(ids, metadatas=None, embeddings=None, documents=None, distances=None
         payload["metadatas"] = metadatas
     if embeddings is not None:
         payload["embeddings"] = embeddings
+    if embeddings_kw is not None:
+        payload["embeddings_kw"] = embeddings_kw
     if documents is not None:
         payload["documents"] = documents
     if distances is not None:
@@ -659,8 +692,9 @@ def _result(ids, metadatas=None, embeddings=None, documents=None, distances=None
     return payload
 
 
-def _upsert_record(uuid, metadata, embedding=None, document=None, update_embedding=True):
+def _upsert_record(uuid, metadata, embedding=None, embedding_kw=None, document=None, update_embedding=True):
     embedding_value = _embedding_literal(embedding)
+    embedding_kw_value = _embedding_literal(embedding_kw)
     metadata = metadata or {}
     normalized_metadata = _extract_normalized_metadata(metadata)
     normalized_values = [normalized_metadata[col] for col in NORMALIZED_METADATA_COLUMN_NAMES]
@@ -677,12 +711,13 @@ def _upsert_record(uuid, metadata, embedding=None, document=None, update_embeddi
             conn.execute(
                 sql.SQL(
                     """
-                    INSERT INTO photo_metadata (uuid, metadata, document, embedding, {norm_cols})
-                    VALUES (%s, %s, %s, %s::vector, {norm_placeholders})
+                    INSERT INTO photo_metadata (uuid, metadata, document, embedding, embedding_kw, {norm_cols})
+                    VALUES (%s, %s, %s, %s::vector, %s::vector, {norm_placeholders})
                     ON CONFLICT (uuid) DO UPDATE SET
                         metadata = EXCLUDED.metadata,
                         document = COALESCE(EXCLUDED.document, photo_metadata.document),
                         embedding = COALESCE(EXCLUDED.embedding, photo_metadata.embedding),
+                        embedding_kw = COALESCE(EXCLUDED.embedding_kw, photo_metadata.embedding_kw),
                         {norm_set_clauses},
                         updated_at = now()
                     """
@@ -691,7 +726,7 @@ def _upsert_record(uuid, metadata, embedding=None, document=None, update_embeddi
                     norm_placeholders=norm_placeholders,
                     norm_set_clauses=norm_set_clauses,
                 ),
-                (uuid, Jsonb(metadata), document, embedding_value, *normalized_values),
+                (uuid, Jsonb(metadata), document, embedding_value, embedding_kw_value, *normalized_values),
             )
         else:
             conn.execute(
@@ -714,12 +749,23 @@ def _upsert_record(uuid, metadata, embedding=None, document=None, update_embeddi
             )
 
 
-def add_image(uuid, embedding, metadata, document=None):
+def add_image(uuid, embedding, metadata, embedding_kw=None, document=None):
     _ensure_initialized()
     if DEBUG_LEVEL >= 1:
-        logger.info(f"Saving image {uuid} to PostgreSQL (embedding={embedding is not None}, document={'yes' if document else 'no'})")
+        logger.info(
+            f"Saving image {uuid} to PostgreSQL ("
+            f"embedding={embedding is not None}, "
+            f"embedding_kw={embedding_kw is not None}, "
+            f"document={'yes' if document else 'no'})"
+        )
     try:
-        _upsert_record(uuid, metadata, embedding=embedding, document=document, update_embedding=embedding is not None)
+        _upsert_record(
+            uuid, metadata,
+            embedding=embedding,
+            embedding_kw=embedding_kw,
+            document=document,
+            update_embedding=(embedding is not None) or (embedding_kw is not None),
+        )
         if DEBUG_LEVEL >= 1:
             logger.info(f"Image {uuid} saved successfully to PostgreSQL.")
     except Exception as e:
@@ -730,14 +776,15 @@ def add_image(uuid, embedding, metadata, document=None):
         raise
 
 
-def update_image(uuid, metadata, embedding=None, document=None):
+def update_image(uuid, metadata, embedding=None, embedding_kw=None, document=None):
     _ensure_initialized()
     _upsert_record(
         uuid,
         metadata,
         embedding=embedding,
+        embedding_kw=embedding_kw,
         document=document,
-        update_embedding=embedding is not None,
+        update_embedding=(embedding is not None) or (embedding_kw is not None),
     )
     if DEBUG_LEVEL >= 2:
         logger.debug(f"image {uuid} is well UPSERTED in PostgreSQL. Metadata = {metadata}")
@@ -748,7 +795,9 @@ def get_image(uuid):
     with _connect_to_target() as conn:
         row = conn.execute(
             """
-            SELECT uuid, metadata, document, embedding::text AS embedding
+            SELECT uuid, metadata, document,
+                   embedding::text AS embedding,
+                   embedding_kw::text AS embedding_kw
             FROM photo_metadata
             WHERE uuid = %s
             """,
@@ -762,6 +811,7 @@ def get_image(uuid):
         [row[0]],
         metadatas=[row[1] or {}],
         embeddings=[_embedding_from_text(row[3])],
+        embeddings_kw=[_embedding_from_text(row[4])],
         documents=[row[2]],
     )
 
@@ -1159,22 +1209,38 @@ def _filter_sql(where_clause, prefix):
 
 
 def query_images(query_embedding, n_results, where_clause=None, include_embeddings=False):
+    """Search photos by semantic similarity using the best score across both embeddings.
+
+    For each candidate photo, the distance is the minimum cosine distance across
+    the prose embedding (``embedding``) and the keyword embedding (``embedding_kw``).
+    Photos that only have one embedding type still match correctly: the missing
+    embedding contributes a worst-case distance of 1.0 which LEAST ignores.
+    """
     _ensure_initialized()
     query_vector = _embedding_literal(query_embedding)
 
     try:
-        select_embedding = ", embedding::text AS embedding" if include_embeddings else ""
+        select_embedding = (
+            ", embedding::text AS embedding, embedding_kw::text AS embedding_kw"
+            if include_embeddings else ""
+        )
         filter_sql, filter_params = _filter_sql(where_clause, "AND")
-        params = [query_vector, *filter_params, query_vector, n_results]
+        # query_vector appears twice in the SELECT (once per COALESCE distance expression).
+        params = [query_vector, query_vector, *filter_params, n_results]
 
         query = sql.SQL(
             """
-            SELECT uuid, metadata, embedding <=> %s::vector AS distance {select_embedding}
+            SELECT uuid, metadata,
+                LEAST(
+                    COALESCE(embedding    <=> %s::vector, 1.0),
+                    COALESCE(embedding_kw <=> %s::vector, 1.0)
+                ) AS distance
+                {select_embedding}
             FROM photo_metadata
-            WHERE embedding IS NOT NULL
+            WHERE (embedding IS NOT NULL OR embedding_kw IS NOT NULL)
             AND COALESCE((metadata->>'has_embedding')::boolean, true)
             {filter_sql}
-            ORDER BY embedding <=> %s::vector
+            ORDER BY distance
             LIMIT %s
             """
         ).format(
@@ -1189,19 +1255,29 @@ def query_images(query_embedding, n_results, where_clause=None, include_embeddin
         metadatas = []
         distances = []
         embeddings = [] if include_embeddings else None
+        embeddings_kw = [] if include_embeddings else None
         for row in rows:
             ids.append(row[0])
             metadatas.append(row[1] or {})
             distances.append(float(row[2]) if row[2] is not None else None)
             if include_embeddings:
                 embeddings.append(_embedding_from_text(row[3]))
+                embeddings_kw.append(_embedding_from_text(row[4]))
 
-        return _result(ids, metadatas=metadatas, embeddings=embeddings, distances=distances, grouped=True)
+        return _result(
+            ids,
+            metadatas=metadatas,
+            embeddings=embeddings,
+            embeddings_kw=embeddings_kw,
+            distances=distances,
+            grouped=True,
+        )
     except Exception as e:
         logger.error(f"Error querying images: {e}", exc_info=True)
         fallback = {"ids": [[]], "distances": [[]], "metadatas": [[]]}
         if include_embeddings:
             fallback["embeddings"] = [[]]
+            fallback["embeddings_kw"] = [[]]
         return fallback
 
 

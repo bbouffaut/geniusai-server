@@ -28,10 +28,11 @@ def test_process_image_task_stores_search_fields(monkeypatch):
 
     fake_postgre_service = types.ModuleType("service_postgre")
     fake_postgre_service.get_image = lambda uuid: None
-    fake_postgre_service.add_image = lambda uuid, embedding, metadata, document=None: captured_add_calls.append(
+    fake_postgre_service.add_image = lambda uuid, embedding, metadata, embedding_kw=None, document=None: captured_add_calls.append(
         {
             "uuid": uuid,
             "embedding": embedding,
+            "embedding_kw": embedding_kw,
             "metadata": metadata,
             "document": document,
         }
@@ -118,10 +119,11 @@ def test_process_image_task_stores_capture_time_contract_field(monkeypatch):
 
     fake_postgre_service = types.ModuleType("service_postgre")
     fake_postgre_service.get_image = lambda uuid: None
-    fake_postgre_service.add_image = lambda uuid, embedding, metadata, document=None: captured_add_calls.append(
+    fake_postgre_service.add_image = lambda uuid, embedding, metadata, embedding_kw=None, document=None: captured_add_calls.append(
         {
             "uuid": uuid,
             "embedding": embedding,
+            "embedding_kw": embedding_kw,
             "metadata": metadata,
             "document": document,
         }
@@ -187,8 +189,8 @@ def test_process_image_task_stores_client_and_generated_metadata_together(monkey
     captured_calls = []
 
     fake_postgre_service = types.ModuleType("service_postgre")
-    fake_postgre_service.add_image = lambda uuid, embedding, metadata, document=None: captured_calls.append(
-        {"uuid": uuid, "embedding": embedding, "metadata": metadata.copy(), "document": document}
+    fake_postgre_service.add_image = lambda uuid, embedding, metadata, embedding_kw=None, document=None: captured_calls.append(
+        {"uuid": uuid, "embedding": embedding, "embedding_kw": embedding_kw, "metadata": metadata.copy(), "document": document}
     )
 
     fake_server_lifecycle = types.ModuleType("server_lifecycle")
@@ -260,15 +262,16 @@ def test_process_image_task_does_not_extract_exif_from_image_bytes(monkeypatch):
             return None
         return {"ids": [uuid], "metadatas": [records[uuid]]}
 
-    def fake_update_image(uuid, metadata, embedding=None, document=None):
+    def fake_update_image(uuid, metadata, embedding=None, embedding_kw=None, document=None):
         records[uuid] = metadata.copy()
 
     fake_postgre_service.get_image = fake_get_image
     fake_postgre_service.update_image = fake_update_image
-    fake_postgre_service.add_image = lambda uuid, embedding, metadata, document=None: fake_update_image(
+    fake_postgre_service.add_image = lambda uuid, embedding, metadata, embedding_kw=None, document=None: fake_update_image(
         uuid,
         metadata,
         embedding=embedding,
+        embedding_kw=embedding_kw,
         document=document,
     )
 
@@ -323,15 +326,16 @@ def test_process_image_task_stores_metadata_when_embedding_generation_fails(monk
             return None
         return {"ids": [uuid], "metadatas": [records[uuid]]}
 
-    def fake_update_image(uuid, metadata, embedding=None, document=None):
+    def fake_update_image(uuid, metadata, embedding=None, embedding_kw=None, document=None):
         records[uuid] = metadata.copy()
 
     fake_postgre_service.get_image = fake_get_image
     fake_postgre_service.update_image = fake_update_image
-    fake_postgre_service.add_image = lambda uuid, embedding, metadata, document=None: fake_update_image(
+    fake_postgre_service.add_image = lambda uuid, embedding, metadata, embedding_kw=None, document=None: fake_update_image(
         uuid,
         metadata,
         embedding=embedding,
+        embedding_kw=embedding_kw,
         document=document,
     )
 
@@ -406,14 +410,14 @@ def test_process_image_task_stores_document_when_embedding_generation_fails(monk
             return None
         return {"ids": [uuid], "metadatas": [stored_records[uuid]]}
 
-    def fake_update_image(uuid, metadata, embedding=None, document=None):
+    def fake_update_image(uuid, metadata, embedding=None, embedding_kw=None, document=None):
         stored_records[uuid] = metadata.copy()
-        stored_calls.append({"uuid": uuid, "embedding": embedding, "document": document})
+        stored_calls.append({"uuid": uuid, "embedding": embedding, "embedding_kw": embedding_kw, "document": document})
 
     fake_postgre_service.get_image = fake_get_image
     fake_postgre_service.update_image = fake_update_image
-    fake_postgre_service.add_image = lambda uuid, embedding, metadata, document=None: fake_update_image(
-        uuid, metadata, embedding=embedding, document=document
+    fake_postgre_service.add_image = lambda uuid, embedding, metadata, embedding_kw=None, document=None: fake_update_image(
+        uuid, metadata, embedding=embedding, embedding_kw=embedding_kw, document=document
     )
 
     fake_server_lifecycle = types.ModuleType("server_lifecycle")
@@ -482,14 +486,14 @@ def test_process_image_task_stores_embedding_and_document_on_success(monkeypatch
             return None
         return {"ids": [uuid], "metadatas": [stored_records[uuid]]}
 
-    def fake_update_image(uuid, metadata, embedding=None, document=None):
+    def fake_update_image(uuid, metadata, embedding=None, embedding_kw=None, document=None):
         stored_records[uuid] = metadata.copy()
-        stored_calls.append({"uuid": uuid, "embedding": embedding, "document": document})
+        stored_calls.append({"uuid": uuid, "embedding": embedding, "embedding_kw": embedding_kw, "document": document})
 
     fake_postgre_service.get_image = fake_get_image
     fake_postgre_service.update_image = fake_update_image
-    fake_postgre_service.add_image = lambda uuid, embedding, metadata, document=None: fake_update_image(
-        uuid, metadata, embedding=embedding, document=document
+    fake_postgre_service.add_image = lambda uuid, embedding, metadata, embedding_kw=None, document=None: fake_update_image(
+        uuid, metadata, embedding=embedding, embedding_kw=embedding_kw, document=document
     )
 
     fake_server_lifecycle = types.ModuleType("server_lifecycle")

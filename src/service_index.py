@@ -174,12 +174,27 @@ def _build_base_metadata(uuid, filename, options, extra_metadata=None):
 
 
 # ---------------------------------------------------------------------------
-# Fields included in the embedding document (allowlist).
-# Only human-readable, semantically rich AI-generated fields are embedded.
+# Fields included in the embedding documents (allowlists).
+#
+# _SEARCHABLE_METADATA_KEYS – all human-readable AI fields concatenated into
+#   the ``document`` column used for SQL ILIKE text search.
+#
+# _PROSE_METADATA_KEYS – natural-language prose fields embedded into the main
+#   ``embedding`` vector.  These carry rich descriptive context that embeds
+#   well as prose sentences.
+#
+# _KEYWORDS_METADATA_KEYS – term-list fields embedded into the secondary
+#   ``embedding_kw`` vector.  Keyword lists embed into a different region of
+#   the vector space than prose; splitting them gives each their own focused
+#   representation so searches for specific tags match more precisely.
+#
+# At query time both vectors are searched and the best cosine similarity
+# across the two is used as the final pertinence score (late fusion).
+#
 # Numeric EXIF fields (ISO, focal length, shutter speed, scores…) and
 # bookkeeping fields (uuid, filename, model, dates…) are intentionally
-# excluded — they dilute the semantic vector and are handled by SQL column
-# filters instead.
+# excluded from all embedding documents — they dilute the semantic vector
+# and are handled by SQL column filters instead.
 # The order matters: richer descriptions first so the model sees them early.
 # ---------------------------------------------------------------------------
 _SEARCHABLE_METADATA_KEYS = [
@@ -189,6 +204,19 @@ _SEARCHABLE_METADATA_KEYS = [
     "keywords",
     "flattened_keywords",
     "quality_critique",
+]
+
+# Natural-language prose fields → main ``embedding`` column.
+_PROSE_METADATA_KEYS = [
+    "title",
+    "caption",
+    "alt_text",
+    "quality_critique",
+]
+
+# Keyword / tag fields → secondary ``embedding_kw`` column.
+_KEYWORDS_METADATA_KEYS = [
+    "flattened_keywords",
 ]
 
 
@@ -227,8 +255,8 @@ def _build_metadata_embedding_document(metadata):
     """Build a searchable text document from the metadata stored for a photo.
 
     Only the fields listed in _SEARCHABLE_METADATA_KEYS are included.
-    The resulting string is both stored in the ``document`` DB column and
-    passed to the embedding model, so they are always identical.
+    The resulting string is stored in the ``document`` DB column and used
+    for SQL ILIKE text search (all fields, prose + keywords together).
     """
     parts = []
     for key in _SEARCHABLE_METADATA_KEYS:
@@ -237,6 +265,29 @@ def _build_metadata_embedding_document(metadata):
             parts.append(f"{key.replace('_', ' ')}: {value_text}")
 
     return "\n".join(parts)
+
+
+def _build_prose_document(metadata):
+    """Build a natural-language document for the prose embedding (``embedding`` column).
+
+    Includes title, caption, alt_text and quality_critique — fields that read
+    as complete sentences and embed well as prose.
+    """
+    parts = []
+    for key in _PROSE_METADATA_KEYS:
+        value_text = _metadata_value_to_text(metadata.get(key))
+        if value_text:
+            parts.append(f"{key.replace('_', ' ')}: {value_text}")
+    return "\n".join(parts)
+
+
+def _build_keywords_document(metadata):
+    """Build a keyword-list document for the keyword embedding (``embedding_kw`` column).
+
+    Uses the flat comma-separated keyword string so the model encodes a
+    compact, tag-style representation that complements the prose embedding.
+    """
+    return _metadata_value_to_text(metadata.get("flattened_keywords"))
 
 
 def _first_non_blank(*values):
@@ -378,32 +429,53 @@ def process_image_task(
 
                 document = None
                 embedding = None
+                embedding_kw = None
                 if compute_embeddings:
+                    # Full document for SQL ILIKE text search (all fields).
                     document = _build_metadata_embedding_document(main_metadata)
                     if not document:
                         logger.error(f"No metadata text available for embedding {uuid}. Storing without embedding.")
                     else:
-                        embedding = server_lifecycle.embed_document(document)
-                        if embedding is None:
-                            logger.error(
-                                f"Metadata embedding generation failed for {uuid}. "
-                                "Storing with document but without embedding."
-                            )
-                        else:
-                            main_metadata["metadata_search_text"] = document
-                            main_metadata["embedding_source"] = "metadata"
-                            main_metadata["embedding_model"] = TEXT_EMBEDDING_MODEL_ID
+                        # --- Prose embedding (title, caption, alt_text, quality_critique) ---
+                        prose_document = _build_prose_document(main_metadata)
+                        if prose_document:
+                            embedding = server_lifecycle.embed_document(prose_document)
+                            if embedding is None:
+                                logger.error(
+                                    f"Prose embedding generation failed for {uuid}. "
+                                    "Storing with document but without prose embedding."
+                                )
+                            else:
+                                main_metadata["metadata_search_text"] = prose_document
+                                main_metadata["embedding_source"] = "prose"
+                                main_metadata["embedding_model"] = TEXT_EMBEDDING_MODEL_ID
 
-                main_metadata['has_embedding'] = embedding is not None
+                        # --- Keyword embedding (flattened_keywords) ---
+                        kw_document = _build_keywords_document(main_metadata)
+                        if kw_document:
+                            embedding_kw = server_lifecycle.embed_document(kw_document)
+                            if embedding_kw is None:
+                                logger.error(
+                                    f"Keywords embedding generation failed for {uuid}. "
+                                    "Storing without keyword embedding."
+                                )
+                            else:
+                                main_metadata["keywords_search_text"] = kw_document
+                                main_metadata["embedding_kw_source"] = "keywords"
+                                if not main_metadata.get("embedding_model"):
+                                    main_metadata["embedding_model"] = TEXT_EMBEDDING_MODEL_ID
+
+                main_metadata['has_embedding'] = (embedding is not None) or (embedding_kw is not None)
 
                 logger.info(
                     f"Processing done for {uuid}: "
                     f"metadata_ok={metadata_data is not None and metadata_data.success if metadata_data else False}, "
                     f"quality_ok={rating_data is not None and rating_data.success if rating_data else False}, "
                     f"embedding={'yes' if embedding is not None else 'no'}, "
+                    f"embedding_kw={'yes' if embedding_kw is not None else 'no'}, "
                     f"document={'yes' if document else 'no'}"
                 )
-                postgre_service.add_image(uuid, embedding, main_metadata, document=document)
+                postgre_service.add_image(uuid, embedding, main_metadata, embedding_kw=embedding_kw, document=document)
                 success_count += 1
 
             except Exception as e:

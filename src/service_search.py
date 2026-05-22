@@ -776,7 +776,13 @@ def _log_retrieved_photos(term, final_results, metadata_by_id):
 
 
 def _transform_and_sort_results(results, quality_sort, query_embedding, min_pertinence_score):
-    """Transforms vector DB results and sorts them based on quality or distance."""
+    """Transforms vector DB results and sorts them based on quality or distance.
+
+    When both prose and keyword embeddings are present for a photo, the
+    pertinence score is the *maximum* cosine similarity across the two
+    (late fusion).  Photos that only carry one embedding type degrade
+    gracefully to the single-embedding score.
+    """
     if not results:
         return []
 
@@ -787,6 +793,7 @@ def _transform_and_sort_results(results, quality_sort, query_embedding, min_pert
     distances = _first_result_group(results, 'distances')
     metadatas = _first_result_group(results, 'metadatas')
     embeddings = _first_result_group(results, 'embeddings')
+    embeddings_kw = _first_result_group(results, 'embeddings_kw')
 
     transformed_results = []
     for i in range(len(ids)):
@@ -797,7 +804,18 @@ def _transform_and_sort_results(results, quality_sort, query_embedding, min_pert
 
         distance = distances[i] if i < len(distances) else None
         embedding = embeddings[i] if i < len(embeddings) else None
-        pertinence_score = _score_from_embedding(query_embedding, embedding, distance)
+        embedding_kw = embeddings_kw[i] if i < len(embeddings_kw) else None
+
+        # Score from prose embedding (falls back to SQL distance when embedding is None).
+        prose_score = _score_from_embedding(query_embedding, embedding, distance)
+
+        # Score from keyword embedding; take the best of the two (late fusion).
+        if embedding_kw is not None:
+            kw_score = _score_from_embedding(query_embedding, embedding_kw, None)
+            pertinence_score = max(prose_score, kw_score)
+        else:
+            pertinence_score = prose_score
+
         if pertinence_score < min_pertinence_score:
             continue
 
