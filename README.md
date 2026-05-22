@@ -84,7 +84,7 @@ PostgreSQL also stores denormalized typed columns from metadata on every insert/
 
 Reads the stored metadata (caption, keywords) for photos already in the database and re-computes their embedding vectors locally. No images and no LLM calls are needed.
 
-Accepts both **GET** (query-string) and **POST** (JSON body):
+Accepts both **GET** (query-string) and **POST** (JSON body). The connection stays open and streams live progress as newline-delimited JSON (NDJSON) — one line per photo, followed by a final summary line.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -104,13 +104,17 @@ POST /re-index
 {"embedding": true, "embedding_kw": true, "uuids": ["uuid-1", "uuid-2"]}
 ```
 
-Response:
+NDJSON stream:
 
-```json
-{"status": "ok", "total": 4821, "success_count": 4812, "skipped_count": 9, "failure_count": 0}
+```jsonl
+{"event": "start",   "total": 4821, "prose": true, "kw": true}
+{"event": "indexed", "uuid": "abc123", "filename": "DSC_0042.jpg", "prose": true, "kw": true,  "index": 1,    "total": 4821}
+{"event": "indexed", "uuid": "def456", "filename": "IMG_1701.jpg", "prose": false, "kw": true, "index": 2,    "total": 4821}
+{"event": "skipped", "uuid": "ghi789", "filename": "RAW_0099.cr3",                             "index": 3,    "total": 4821}
+{"event": "done",    "total": 4821, "success_count": 4812, "skipped_count": 9, "failure_count": 0}
 ```
 
-`skipped_count` is the number of photos that had no usable source text for the requested embedding type (e.g. no caption was ever generated). HTTP `207` is returned when `failure_count > 0`.
+`skipped` means the photo had no usable source text for the requested embedding type (e.g. no caption was ever generated). `prose`/`kw` on an `indexed` event indicate which of the two embedding columns were actually updated for that photo.
 
 Typical use cases:
 - After activating the dual-embedding feature — run `?embedding=false&embedding_kw=true` to populate `embedding_kw` for existing photos without touching their prose vectors.

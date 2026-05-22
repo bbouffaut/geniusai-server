@@ -1,12 +1,23 @@
 """
 /re-index endpoint — re-compute embeddings for photos already in the DB.
 
+Streams progress back to the caller as newline-delimited JSON (NDJSON).
+One JSON object is written per photo processed; the final object is a summary.
+
 Accepts GET (query-string) and POST (JSON body) with the same parameters:
 
   embedding    bool  (default true)  — recompute the prose embedding (caption)
   embedding_kw bool  (default true)  — recompute the keyword embedding
   uuids        str | list            — comma-separated or JSON array of UUIDs
                                        to process; omit to process all photos
+
+NDJSON event shapes
+-------------------
+  {"event": "start",   "total": 4821, "prose": true, "kw": true}
+  {"event": "indexed", "uuid": "…", "filename": "…", "prose": true, "kw": true, "index": 1, "total": 4821}
+  {"event": "skipped", "uuid": "…", "filename": "…", "index": 2, "total": 4821}
+  {"event": "error",   "uuid": "…", "filename": "…", "error": "…", "index": 3, "total": 4821}
+  {"event": "done",    "total": 4821, "success_count": 4810, "skipped_count": 9, "failure_count": 2}
 
 Examples
 --------
@@ -19,10 +30,10 @@ POST /re-index
 
 import json
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, Response, jsonify, request, stream_with_context
 
 from config import logger
-from service_reindex import reindex_embeddings
+from service_reindex import reindex_embeddings_stream
 
 
 reindex_bp = Blueprint("reindex", __name__)
@@ -57,7 +68,6 @@ def _parse_uuids(raw):
         stripped = raw.strip()
         if not stripped:
             return None
-        # Try JSON array first
         if stripped.startswith("["):
             try:
                 items = json.loads(stripped)
@@ -66,7 +76,6 @@ def _parse_uuids(raw):
                     return parsed or None
             except json.JSONDecodeError:
                 pass
-        # Fall back to comma-separated
         parsed = [item.strip() for item in stripped.split(",") if item.strip()]
         return parsed or None
 
@@ -74,77 +83,68 @@ def _parse_uuids(raw):
 
 
 def _parse_params(source):
-    """
-    Extract re-index parameters from a dict-like source
-    (request.args or a parsed JSON body).
-    """
+    """Extract re-index parameters from a dict-like source."""
     recompute_prose = _coerce_bool(source.get("embedding"), default=True)
     recompute_kw = _coerce_bool(source.get("embedding_kw"), default=True)
-
-    # Accept both "uuid"/"uuids" for convenience
     raw_uuids = source.get("uuids") or source.get("uuid")
     uuids = _parse_uuids(raw_uuids)
-
     return recompute_prose, recompute_kw, uuids
 
 
-def _run_reindex(recompute_prose, recompute_kw, uuids):
+def _parse_request_body():
+    """Return the POST body as a dict, or None on parse error."""
+    if request.is_json:
+        return request.get_json(silent=True) or {}
+    if request.form:
+        return {key: request.form.get(key) for key in request.form.keys()}
+    raw = request.get_data(cache=True, as_text=True)
+    if raw and raw.strip():
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+    return {}
+
+
+def _stream_reindex(recompute_prose, recompute_kw, uuids):
+    """Return a streaming NDJSON Response that yields one line per photo."""
     uuid_desc = f"{len(uuids)} UUID(s)" if uuids else "all photos"
     logger.info(
         f"Re-index request: prose={recompute_prose}, "
         f"embedding_kw={recompute_kw}, scope={uuid_desc}"
     )
 
-    if not recompute_prose and not recompute_kw:
-        return jsonify({
-            "status": "ok",
-            "message": "Nothing to do: both embedding and embedding_kw are false.",
-            "total": 0,
-            "success_count": 0,
-            "skipped_count": 0,
-            "failure_count": 0,
-        }), 200
-
-    try:
-        result = reindex_embeddings(
+    @stream_with_context
+    def _generate():
+        for event in reindex_embeddings_stream(
             uuids=uuids,
             recompute_prose=recompute_prose,
             recompute_kw=recompute_kw,
-        )
-        status_code = 200 if result["failure_count"] == 0 else 207
-        return jsonify({"status": "ok", **result}), status_code
+        ):
+            yield json.dumps(event, ensure_ascii=False) + "\n"
 
-    except Exception as e:
-        logger.error(f"Re-index failed: {e}", exc_info=True)
-        return jsonify({"status": "error", "error": str(e)}), 500
+    return Response(
+        _generate(),
+        mimetype="application/x-ndjson",
+        headers={"X-Accel-Buffering": "no"},
+    )
 
 
 @reindex_bp.route("/re-index", methods=["GET"])
 def reindex_get():
-    """Re-index via query-string parameters."""
+    """Re-index via query-string parameters, streamed as NDJSON."""
     recompute_prose, recompute_kw, uuids = _parse_params(request.args)
-    return _run_reindex(recompute_prose, recompute_kw, uuids)
+    return _stream_reindex(recompute_prose, recompute_kw, uuids)
 
 
 @reindex_bp.route("/re-index", methods=["POST"])
 def reindex_post():
-    """Re-index via JSON body (or form data)."""
-    if request.is_json:
-        body = request.get_json(silent=True) or {}
-    elif request.form:
-        body = {key: request.form.get(key) for key in request.form.keys()}
-    else:
-        raw = request.get_data(cache=True, as_text=True)
-        if raw and raw.strip():
-            try:
-                body = json.loads(raw)
-            except json.JSONDecodeError:
-                return jsonify({"status": "error", "error": "Request body must be valid JSON"}), 400
-        else:
-            body = {}
-
+    """Re-index via JSON body, streamed as NDJSON."""
+    body = _parse_request_body()
+    if body is None:
+        return jsonify({"status": "error", "error": "Request body must be valid JSON"}), 400
     if not isinstance(body, dict):
         return jsonify({"status": "error", "error": "Request body must be a JSON object"}), 400
 
     recompute_prose, recompute_kw, uuids = _parse_params(body)
-    return _run_reindex(recompute_prose, recompute_kw, uuids)
+    return _stream_reindex(recompute_prose, recompute_kw, uuids)

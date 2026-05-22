@@ -7,9 +7,14 @@ This lets you refresh embeddings after:
   - Switching to a new embedding model (requires full re-index from scratch)
   - Activating the dual-embedding feature (new embedding_kw column)
   - Changing which fields are used for each embedding vector
+
+The public entry-point is ``reindex_embeddings_stream``, a generator that
+yields one dict per processed photo plus a final summary line, allowing the
+caller to stream results back to the HTTP client as NDJSON.
 """
 
 import json
+from typing import Generator
 
 import server_lifecycle
 import service_postgre as postgre_service
@@ -22,34 +27,48 @@ from service_index import (
 )
 
 
-def reindex_embeddings(
+def reindex_embeddings_stream(
     uuids=None,
     recompute_prose=True,
     recompute_kw=True,
-):
+) -> Generator[dict, None, None]:
     """
-    Re-compute prose and/or keyword embeddings for photos already in the DB.
+    Generator that re-computes prose and/or keyword embeddings for photos
+    already in the DB, yielding one status dict per photo.
 
-    Reads each photo's stored metadata (caption, flattened_keywords, etc.),
-    runs the embedding model locally, and writes the updated vectors back.
-    The metadata JSONB is also updated with housekeeping fields
-    (embedding_source, embedding_model, has_embedding, …).
+    Yielded event shapes
+    --------------------
+    Start (first):
+        {"event": "start", "total": <int>, "prose": <bool>, "kw": <bool>}
+
+    Per photo — success:
+        {"event": "indexed", "uuid": "…", "filename": "…",
+         "prose": <bool>, "kw": <bool>, "index": <int>, "total": <int>}
+        ``prose`` / ``kw`` indicate which embeddings were actually updated.
+
+    Per photo — skipped (no usable source text):
+        {"event": "skipped", "uuid": "…", "filename": "…",
+         "index": <int>, "total": <int>}
+
+    Per photo — error:
+        {"event": "error", "uuid": "…", "filename": "…",
+         "error": "…", "index": <int>, "total": <int>}
+
+    Done (last):
+        {"event": "done", "total": <int>, "success_count": <int>,
+         "skipped_count": <int>, "failure_count": <int>}
 
     Args:
         uuids (list[str] | None): UUIDs to process. None means all photos.
         recompute_prose (bool): Rebuild the ``embedding`` column from caption.
         recompute_kw (bool): Rebuild the ``embedding_kw`` column from keywords.
-
-    Returns:
-        dict with keys: total, success_count, skipped_count, failure_count.
-             skipped means the photo had no usable source text for the
-             requested embedding type(s) — nothing was written to the DB.
     """
     if not recompute_prose and not recompute_kw:
-        logger.info("Re-index: nothing to do (both prose and kw are disabled).")
-        return {"total": 0, "success_count": 0, "skipped_count": 0, "failure_count": 0}
+        logger.info("Re-index: nothing to do (both prose and kw disabled).")
+        yield {"event": "done", "total": 0,
+               "success_count": 0, "skipped_count": 0, "failure_count": 0}
+        return
 
-    # Fetch records from DB — no embeddings needed, just metadata JSONB.
     raw = postgre_service.get_image_metadatas(ids=uuids if uuids else None)
     all_ids = raw.get("ids", [])
     all_metadatas = raw.get("metadatas", [])
@@ -59,15 +78,19 @@ def reindex_embeddings(
         f"Re-index starting: {total} photo(s) — "
         f"prose={recompute_prose}, embedding_kw={recompute_kw}"
     )
+    yield {"event": "start", "total": total,
+           "prose": recompute_prose, "kw": recompute_kw}
 
     success_count = 0
     skipped_count = 0
     failure_count = 0
 
     for i, (uuid, raw_metadata) in enumerate(zip(all_ids, all_metadatas)):
-        try:
-            metadata = dict(raw_metadata or {})
+        index = i + 1
+        metadata = dict(raw_metadata or {})
+        filename = metadata.get("filename") or ""
 
+        try:
             # Decode keywords JSON string if needed so helpers can flatten it.
             kw_raw = metadata.get("keywords")
             if isinstance(kw_raw, str) and kw_raw.strip():
@@ -82,7 +105,8 @@ def reindex_embeddings(
 
             prose_embedding = None
             kw_embedding = None
-            updated = False
+            prose_updated = False
+            kw_updated = False
 
             # ----------------------------------------------------------------
             # Prose embedding — built from caption only
@@ -95,7 +119,7 @@ def reindex_embeddings(
                         metadata["metadata_search_text"] = prose_doc
                         metadata["embedding_source"] = "prose"
                         metadata["embedding_model"] = TEXT_EMBEDDING_MODEL_ID
-                        updated = True
+                        prose_updated = True
                     else:
                         logger.warning(f"Re-index: prose embedding failed for {uuid}.")
                 else:
@@ -113,23 +137,25 @@ def reindex_embeddings(
                         metadata["embedding_kw_source"] = "keywords"
                         if not metadata.get("embedding_model"):
                             metadata["embedding_model"] = TEXT_EMBEDDING_MODEL_ID
-                        updated = True
+                        kw_updated = True
                     else:
                         logger.warning(f"Re-index: keyword embedding failed for {uuid}.")
                 else:
                     logger.debug(f"Re-index: no keyword text for {uuid} — kw skipped.")
 
-            if not updated:
+            if not prose_updated and not kw_updated:
                 skipped_count += 1
+                yield {"event": "skipped", "uuid": uuid, "filename": filename,
+                       "index": index, "total": total}
                 continue
 
             # Update has_embedding: preserve True if the photo was already
-            # embedded (existing value), and set True if we just produced one.
+            # embedded, and set True if we just produced a new vector.
             existing_has_embedding = bool(metadata.get("has_embedding", False))
             metadata["has_embedding"] = (
                 existing_has_embedding
-                or (prose_embedding is not None)
-                or (kw_embedding is not None)
+                or prose_updated
+                or kw_updated
             )
 
             # Rebuild the full-text document column (for SQL ILIKE search).
@@ -138,24 +164,34 @@ def reindex_embeddings(
             postgre_service.update_image(
                 uuid,
                 metadata,
-                embedding=prose_embedding,      # None keeps the existing vector
-                embedding_kw=kw_embedding,      # None keeps the existing vector
+                embedding=prose_embedding,   # None keeps the existing vector
+                embedding_kw=kw_embedding,   # None keeps the existing vector
                 document=document,
             )
-            success_count += 1
 
-            if (i + 1) % 50 == 0 or (i + 1) == total:
-                logger.info(f"Re-index progress: {i + 1}/{total}")
+            success_count += 1
+            yield {
+                "event": "indexed",
+                "uuid": uuid,
+                "filename": filename,
+                "prose": prose_updated,
+                "kw": kw_updated,
+                "index": index,
+                "total": total,
+            }
 
         except Exception as e:
             logger.error(f"Re-index: unexpected error for {uuid}: {e}", exc_info=True)
             failure_count += 1
+            yield {"event": "error", "uuid": uuid, "filename": filename,
+                   "error": str(e), "index": index, "total": total}
 
     logger.info(
         f"Re-index done — updated={success_count}, "
         f"skipped={skipped_count}, failed={failure_count}, total={total}"
     )
-    return {
+    yield {
+        "event": "done",
         "total": total,
         "success_count": success_count,
         "skipped_count": skipped_count,
