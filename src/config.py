@@ -234,19 +234,34 @@ You also try to identify famous buildings and landmarks as well as the location 
 Furthermore, you aim to specify animal and plant species as accurately as possible. 
 You also describe objects—such as vehicle types and manufacturers—as specifically as you can."""
 
+# ---------------------------------------------------------------------------
+# Caption (= IPTC Caption/Abstract in Lightroom) is the primary semantic field.
+# It must be detailed enough to serve as the main prose-embedding anchor so
+# that semantic search can match fine-grained queries about subjects, scene,
+# lighting, mood, and location.
+#
+# Alt text is kept brief and accessibility-focused (screen-reader context);
+# it is NOT used for embedding.
+#
+# Title is a short display heading; it is NOT used for embedding.
+# ---------------------------------------------------------------------------
 METADATA_GENERATION_USER_PROMPT_TEMPLATE = """Analyze the uploaded photo and generate the following data:
-* Alt text (with context for screen readers)
-* Image caption
-* Image title
+* Caption: Write a detailed description (2-4 sentences) of the scene covering subjects (people, animals, objects), setting and background, colors and lighting, mood and atmosphere, and any identifiable locations or landmarks.
+* Alt text: A concise visual description for screen readers (1-2 sentences).
+* Title: A short, descriptive title for the photo.
 * Keywords
 
 All results should be generated in {language}."""
 
 BASE_PROMPT = "Analyze the uploaded photo and generate the following data:\n"
-ALT_TEXT_PROMPT_ADDON = "* Alt text (with context for screen readers)\n"
-CAPTION_TEXT_PROMPT_ADDON = "* Image caption\n"
-TITLE_TEXT_PROMPT_ADDON = "* Image title\n"
-KEYWORDS_TEXT_PROMPT_ADDON = "* the 5 most pertinent Keywords\n"
+ALT_TEXT_PROMPT_ADDON = "* Alt text: A concise visual description for screen readers (1-2 sentences).\n"
+CAPTION_TEXT_PROMPT_ADDON = (
+    "* Caption: Write a detailed description (2-4 sentences) of the scene covering: "
+    "subjects (people, animals, objects), setting and background, colors and lighting, "
+    "mood and atmosphere, and any identifiable locations or landmarks.\n"
+)
+TITLE_TEXT_PROMPT_ADDON = "* Title: A short, descriptive title for the photo.\n"
+KEYWORDS_TEXT_PROMPT_ADDON = "* Keywords: the most relevant keywords.\n"
 LANGUAGE_TEXT_INSTRUCTION_ADDON = "\n\nAll results should be generated in %s."
 
 

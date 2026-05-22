@@ -179,9 +179,9 @@ def _build_base_metadata(uuid, filename, options, extra_metadata=None):
 # _SEARCHABLE_METADATA_KEYS – all human-readable AI fields concatenated into
 #   the ``document`` column used for SQL ILIKE text search.
 #
-# _PROSE_METADATA_KEYS – natural-language prose fields embedded into the main
-#   ``embedding`` vector.  These carry rich descriptive context that embeds
-#   well as prose sentences.
+# _PROSE_METADATA_KEYS – the caption field embedded into the main ``embedding``
+#   vector.  The LLM is instructed to write a detailed scene description here
+#   (2-4 sentences), making it the richest semantic anchor per photo.
 #
 # _KEYWORDS_METADATA_KEYS – term-list fields embedded into the secondary
 #   ``embedding_kw`` vector.  Keyword lists embed into a different region of
@@ -206,12 +206,15 @@ _SEARCHABLE_METADATA_KEYS = [
     "quality_critique",
 ]
 
-# Natural-language prose fields → main ``embedding`` column.
+# Caption is the sole source for the prose embedding (``embedding`` column).
+# The LLM is now instructed to write a detailed 2-4-sentence scene description
+# in this field, making it the richest semantic anchor available per photo.
+# Other prose fields are intentionally excluded:
+#   - title          → short display heading; its content is covered by caption
+#   - alt_text       → brief accessibility description (screen readers)
+#   - quality_critique → technical/artistic critique, not a subject description
 _PROSE_METADATA_KEYS = [
-    "title",
     "caption",
-    "alt_text",
-    "quality_critique",
 ]
 
 # Keyword / tag fields → secondary ``embedding_kw`` column.
