@@ -1,9 +1,9 @@
 RUN_SCRIPT     := ./run.sh
 MIGRATE_SCRIPT := ./migrate.sh
-DOTENV_LOCAL ?= .env/.env.postgre.local
-DOTENV_LOCAL_POSTGRE_PROD ?= .env/.env.local.postgre.prod
-DOTENV_SSD ?= .env/.env.postgre.ssd
-DOTENV_PROD ?= .env/.env.postgre.prod
+DOTENV_LOCAL ?= config/.env.postgre.local
+DOTENV_LOCAL_POSTGRE_PROD ?= config/.env.prod
+DOTENV_SSD ?= config/.env.postgre.ssd
+DOTENV_PROD ?= config/.env.postgre.prod
 
 # Migration variables — override on the command line:
 #   make migrate TARGET_DB=mydb-bge TARGET_MODEL=bge-m3 [DOTENV=<env_file>]

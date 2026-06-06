@@ -1353,7 +1353,7 @@ def search_keyword_field(term, where_clause=None, limit=300):
 
     conditions = list(filter_clauses)
     all_params = list(filter_params)
-    conditions.insert(0, sql.SQL("flattened_keywords ~* %s"))
+    conditions.insert(0, sql.SQL("metadata->>'flattened_keywords' ~* %s"))
     all_params.insert(0, pattern)
 
     where_sql = sql.SQL("WHERE ") + sql.SQL(" AND ").join(conditions)

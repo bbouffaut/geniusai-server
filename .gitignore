@@ -30,3 +30,4 @@ lrgenius-server.pid
 .cursor/rules/codacy.mdc
 output.log
 cache/
+config/
