@@ -874,11 +874,18 @@ def search_images(
 
     where_clause = _build_search_where_clause(uuids_to_search, metadata_filters)
 
+    # Short queries (1-2 words) have much less discriminating power in embedding
+    # space — raise the threshold to avoid flooding results with loosely related photos.
+    word_count = len(semantic_term.split()) if semantic_term else 0
+    is_short_query = word_count <= 2
+    effective_threshold = max(min_pertinence_score, 0.60) if is_short_query else min_pertinence_score
+    use_word_boundary = is_short_query
+
     # --- Stage 2: Semantic vector search ---
     query_embedding = server_lifecycle.embed_query(semantic_term) if semantic_term else None
     if query_embedding is not None:
         if DEBUG_LEVEL >= 1:
-            logger.info(f"[search] Stage 2: semantic vector search for '{semantic_term}' (top {limit}, threshold={min_pertinence_score})")
+            logger.info(f"[search] Stage 2: semantic vector search for '{semantic_term}' (top {limit}, threshold={effective_threshold}{' [short-query]' if is_short_query else ''})")
         db_results = postgre_service.query_images(
             query_embedding=query_embedding,
             n_results=limit,
@@ -886,7 +893,7 @@ def search_images(
             include_embeddings=True,
         )
         sorted_semantic_results = _transform_and_sort_results(
-            db_results, quality_sort, query_embedding, min_pertinence_score,
+            db_results, quality_sort, query_embedding, effective_threshold,
         )
         semantic_uuids = {res['uuid'] for res in sorted_semantic_results}
         if DEBUG_LEVEL >= 1:
@@ -902,8 +909,9 @@ def search_images(
     doc_term = semantic_term or None
     if DEBUG_LEVEL >= 1:
         filter_desc = f"{len(metadata_filters)} column filter(s)" if metadata_filters else "no column filters"
+        mode_desc = "word-boundary regex" if use_word_boundary else "ILIKE substring"
         if doc_term:
-            logger.info(f"[search] Stage 3: document ILIKE '%{doc_term}%' + {filter_desc}")
+            logger.info(f"[search] Stage 3: document {mode_desc} '{doc_term}' + {filter_desc}")
         else:
             logger.info(f"[search] Stage 3: column-filters-only query ({filter_desc})")
 
@@ -911,8 +919,27 @@ def search_images(
         term=doc_term,
         where_clause=where_clause,
         limit=limit,
+        use_word_boundary=use_word_boundary,
     )
     text_match_uuids = set(text_match_rows.keys())
+
+    # For short queries also search the dedicated keyword field — more precise than
+    # searching the full document (avoids prose matches in captions/critiques).
+    if doc_term and is_short_query:
+        keyword_match_rows = postgre_service.search_keyword_field(
+            term=doc_term,
+            where_clause=where_clause,
+            limit=limit,
+        )
+        keyword_match_uuids = set(keyword_match_rows.keys())
+        # Merge keyword matches into text matches (keyword hits are authoritative)
+        text_match_rows.update(keyword_match_rows)
+        text_match_uuids |= keyword_match_uuids
+        if DEBUG_LEVEL >= 1:
+            logger.info(f"[search] Stage 3b: keyword-field search found {len(keyword_match_uuids)} additional matches")
+    else:
+        keyword_match_uuids = set()
+
     if DEBUG_LEVEL >= 1:
         logger.info(f"[search] Stage 3 done: {len(text_match_uuids)} document matches")
 
@@ -928,6 +955,9 @@ def search_images(
         if result['uuid'] in text_match_uuids:
             result['metadata_match'] = True
             result['match_type'] = "semantic+metadata"
+            # Boost photos that also matched by keyword so they always rank above
+            # semantic-only results regardless of their raw similarity score.
+            result['pertinence_score'] = max(result['pertinence_score'], 0.95)
 
     text_only_uuids = text_match_uuids - semantic_uuids
     text_only_results = [
@@ -945,6 +975,8 @@ def search_images(
     final_results = sorted_semantic_results + text_only_results
     final_results.sort(
         key=lambda x: (
+            # Keyword-matched results first (pertinence_score >= 0.95), then semantic-only
+            0 if x.get('metadata_match') else 1,
             -x['pertinence_score'],
             x['distance'] if x['distance'] is not None else float('inf'),
         )

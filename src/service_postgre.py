@@ -1281,11 +1281,16 @@ def query_images(query_embedding, n_results, where_clause=None, include_embeddin
         return fallback
 
 
-def search_document_text(term, where_clause=None, limit=300):
-    """Return {uuid: metadata} for rows where document ILIKE term, with optional column filters.
+def search_document_text(term, where_clause=None, limit=300, use_word_boundary=False):
+    """Return {uuid: metadata} for rows matching term, with optional column filters.
 
     If term is None or empty, only column filters from where_clause are applied.
     Returns an empty dict when both term and filters are absent to avoid a full-table fetch.
+
+    When use_word_boundary=True the term is matched as a whole word using a
+    PostgreSQL case-insensitive regex (``~*``) with word-boundary anchors (``\\m``/``\\M``).
+    This prevents "lac" from matching "glacier", "place", etc.
+    Fall back to plain ILIKE if the regex fails (e.g. term contains regex metacharacters).
     """
     _ensure_initialized()
 
@@ -1298,8 +1303,14 @@ def search_document_text(term, where_clause=None, limit=300):
     all_params = list(filter_params)
 
     if term:
-        conditions.insert(0, sql.SQL("document ILIKE %s"))
-        all_params.insert(0, f"%{term}%")
+        if use_word_boundary:
+            import re as _re
+            escaped = _re.escape(term)
+            conditions.insert(0, sql.SQL("document ~* %s"))
+            all_params.insert(0, rf"\m{escaped}\M")
+        else:
+            conditions.insert(0, sql.SQL("document ILIKE %s"))
+            all_params.insert(0, f"%{term}%")
 
     where_sql = sql.SQL("WHERE ") + sql.SQL(" AND ").join(conditions)
 
@@ -1319,6 +1330,50 @@ def search_document_text(term, where_clause=None, limit=300):
         return {row[0]: row[1] or {} for row in rows}
     except Exception as e:
         logger.error(f"Error in search_document_text: {e}", exc_info=True)
+        return {}
+
+
+def search_keyword_field(term, where_clause=None, limit=300):
+    """Return {uuid: metadata} for rows where flattened_keywords contains term as a whole word.
+
+    This is more precise than searching the full document because it avoids matches
+    in caption or quality_critique prose where the word may appear in a different context.
+    Uses PostgreSQL word-boundary regex for exact keyword matching.
+    """
+    _ensure_initialized()
+
+    filter_clauses, filter_params = _filter_clauses(where_clause)
+
+    if not term:
+        return {}
+
+    import re as _re
+    escaped = _re.escape(term)
+    pattern = rf"\m{escaped}\M"
+
+    conditions = list(filter_clauses)
+    all_params = list(filter_params)
+    conditions.insert(0, sql.SQL("flattened_keywords ~* %s"))
+    all_params.insert(0, pattern)
+
+    where_sql = sql.SQL("WHERE ") + sql.SQL(" AND ").join(conditions)
+
+    query = sql.SQL(
+        """
+        SELECT uuid, metadata
+        FROM photo_metadata
+        {where_sql}
+        LIMIT %s
+        """
+    ).format(where_sql=where_sql)
+    all_params.append(limit)
+
+    try:
+        with _connect_to_target() as conn:
+            rows = conn.execute(query, all_params).fetchall()
+        return {row[0]: row[1] or {} for row in rows}
+    except Exception as e:
+        logger.error(f"Error in search_keyword_field: {e}", exc_info=True)
         return {}
 
 
