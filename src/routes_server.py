@@ -51,13 +51,14 @@ def list_models():
     empty list when no models are returned. Always filters for multimodal
     (vision-capable) models only.
     
-    POST JSON or form data: { 
+    POST JSON or form data: {
         openai_apikey?: str,  # Optional OpenAI API key for ChatGPT models
         gemini_apikey?: str,  # Optional Gemini API key for Gemini models
         mistral_apikey?: str,  # Optional Mistral API key for Mistral models
-        anthropic_apikey?: str  # Optional Anthropic API key for Claude models
+        anthropic_apikey?: str,  # Optional Anthropic API key for Claude models
+        openrouter_apikey?: str  # Optional OpenRouter API key for OpenRouter models
     }
-    
+
     Returns: {
         "models": {
             "qwen": ["model1", "model2"],
@@ -66,7 +67,8 @@ def list_models():
             "chatgpt": [...],
             "gemini": [...],
             "mistral": [...],
-            "anthropic": [...]
+            "anthropic": [...],
+            "openrouter": [...]
         }
     }
     """
@@ -75,9 +77,10 @@ def list_models():
     gemini_apikey = _request_value(data, 'gemini_apikey')
     mistral_apikey = _request_value(data, 'mistral_apikey')
     anthropic_apikey = _request_value(data, 'anthropic_apikey')
+    openrouter_apikey = _request_value(data, 'openrouter_apikey')
 
     logger.info("Models request received - checking all providers")
-    
+
     try:
         # Get all available multimodal models
         # This will dynamically re-check Ollama and LM Studio availability
@@ -86,6 +89,7 @@ def list_models():
             gemini_apikey=gemini_apikey,
             mistral_apikey=mistral_apikey,
             anthropic_apikey=anthropic_apikey,
+            openrouter_apikey=openrouter_apikey,
         )
         return jsonify({"models": models})
     except Exception as e:

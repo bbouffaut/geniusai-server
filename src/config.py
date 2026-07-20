@@ -283,6 +283,7 @@ OLLAMA_BASE_URL = "http://localhost:11434"
 MISTRAL_BASE_URL = "https://api.mistral.ai/v1"
 ANTHROPIC_BASE_URL = "https://api.anthropic.com/v1"
 ANTHROPIC_API_VERSION = "2023-06-01"
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 log_level = logging.DEBUG if DEBUG_MODE else logging.INFO
 root_log_level = logging.DEBUG if DEBUG_MODE or DEBUG_IN_FILE else logging.INFO

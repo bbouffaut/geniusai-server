@@ -18,6 +18,7 @@ from llm_provider_chatgpt import ChatGPTProvider
 from llm_provider_gemini import GeminiProvider
 from llm_provider_mistral import MistralProvider
 from llm_provider_anthropic import AnthropicProvider
+from llm_provider_openrouter import OpenRouterProvider
 from config import logger, DEFAULT_METADATA_PROVIDER, DEFAULT_METADATA_LANGUAGE, DEFAULT_KEYWORD_CATEGORIES
 
 
@@ -125,7 +126,18 @@ class AnalysisService:
                 logger.info("○ Anthropic provider registered (API key not configured, can be provided later)")
         except Exception as e:
             logger.error(f"✗ Failed to initialize Anthropic provider: {e}")
-        
+
+        # OpenRouter (cloud) - Always add to providers, API key can be provided later
+        try:
+            openrouter = OpenRouterProvider({})
+            self.providers['openrouter'] = openrouter
+            if openrouter.is_available():
+                logger.info("✓ OpenRouter provider initialized")
+            else:
+                logger.info("○ OpenRouter provider registered (API key not configured, can be provided later)")
+        except Exception as e:
+            logger.error(f"✗ Failed to initialize OpenRouter provider: {e}")
+
         if not self.providers:
             logger.error("⚠️  No LLM providers available! Metadata generation will not work.")
         else:
@@ -322,6 +334,7 @@ class AnalysisService:
         gemini_apikey: Optional[str] = None,
         mistral_apikey: Optional[str] = None,
         anthropic_apikey: Optional[str] = None,
+        openrouter_apikey: Optional[str] = None,
     ) -> Dict[str, List[str]]:
         """
         Return all available multimodal (vision-capable) models from all providers.
@@ -332,6 +345,7 @@ class AnalysisService:
             'gemini': gemini_apikey,
             'mistral': mistral_apikey,
             'anthropic': anthropic_apikey,
+            'openrouter': openrouter_apikey,
         }
 
         for provider_name, provider_instance in self.providers.items():
