@@ -542,3 +542,150 @@ def test_process_image_task_stores_embedding_and_document_on_success(monkeypatch
     final_call = stored_calls[-1]
     assert final_call["embedding"] == [0.1, 0.2, 0.3], "embedding must be passed to update_image"
     assert final_call["document"] is not None, "document must be passed to update_image"
+
+
+def test_process_image_task_counts_failure_when_analyze_batch_raises(monkeypatch):
+    """If the LLM analysis call raises, nothing is written to pSQL and the
+    photo is counted as a failure."""
+    fake_config = types.ModuleType("config")
+    fake_config.TEXT_EMBEDDING_MODEL_ID = "text-model"
+    fake_config.logger = _make_logger()
+
+    add_calls = []
+
+    fake_postgre_service = types.ModuleType("service_postgre")
+    fake_postgre_service.add_image = lambda *args, **kwargs: add_calls.append(args)
+
+    fake_server_lifecycle = types.ModuleType("server_lifecycle")
+    fake_server_lifecycle.embed_document = lambda document: [0.1, 0.2, 0.3]
+
+    class FakeAnalysisService:
+        def analyze_batch(self, *args, **kwargs):
+            raise RuntimeError("LLM provider unreachable")
+
+    fake_service_metadata = types.ModuleType("service_metadata")
+    fake_service_metadata.get_analysis_service = lambda: FakeAnalysisService()
+
+    monkeypatch.setitem(sys.modules, "config", fake_config)
+    monkeypatch.setitem(sys.modules, "service_postgre", fake_postgre_service)
+    monkeypatch.setitem(sys.modules, "server_lifecycle", fake_server_lifecycle)
+    monkeypatch.setitem(sys.modules, "service_metadata", fake_service_metadata)
+
+    sys.modules.pop("service_index", None)
+    service_index = importlib.import_module("service_index")
+
+    success_count, failure_count = service_index.process_image_task(
+        [(b"fake-image", "photo-1", "alpha.jpg")],
+        options={
+            "provider": "ollama",
+            "model": "gpt-4o",
+            "capture_time": "2026-05-02 12:34:56",
+            "compute_embeddings": True,
+            "compute_metadata": True,
+            "compute_quality": True,
+        },
+    )
+
+    assert success_count == 0
+    assert failure_count == 1
+    assert add_calls == [], "nothing must be written to pSQL when the LLM call fails"
+
+
+def test_process_image_task_counts_failure_when_llm_result_unsuccessful(monkeypatch):
+    """If the LLM returns an unsuccessful result for the photo, nothing is
+    written to pSQL and the photo is counted as a failure."""
+    fake_config = types.ModuleType("config")
+    fake_config.TEXT_EMBEDDING_MODEL_ID = "text-model"
+    fake_config.logger = _make_logger()
+
+    add_calls = []
+
+    fake_postgre_service = types.ModuleType("service_postgre")
+    fake_postgre_service.add_image = lambda *args, **kwargs: add_calls.append(args)
+
+    fake_server_lifecycle = types.ModuleType("server_lifecycle")
+    fake_server_lifecycle.embed_document = lambda document: [0.1, 0.2, 0.3]
+
+    class FakeAnalysisService:
+        def analyze_batch(self, image_triplets, options, _image_model=None, _image_processor=None,
+                          uuids_needing_embeddings=None, uuids_needing_metadata=None, uuids_needing_quality=None):
+            # metadata succeeds, but quality rating fails (success=False)
+            metadata_result = types.SimpleNamespace(
+                success=True,
+                title="Sunset",
+                caption="A sunset over the sea",
+                alt_text=None,
+                keywords={"Keywords": ["sea", "sunset"]},
+            )
+            rating_result = types.SimpleNamespace(success=False)
+            return None, {}, [metadata_result], [rating_result]
+
+    fake_service_metadata = types.ModuleType("service_metadata")
+    fake_service_metadata.get_analysis_service = lambda: FakeAnalysisService()
+
+    monkeypatch.setitem(sys.modules, "config", fake_config)
+    monkeypatch.setitem(sys.modules, "service_postgre", fake_postgre_service)
+    monkeypatch.setitem(sys.modules, "server_lifecycle", fake_server_lifecycle)
+    monkeypatch.setitem(sys.modules, "service_metadata", fake_service_metadata)
+
+    sys.modules.pop("service_index", None)
+    service_index = importlib.import_module("service_index")
+
+    success_count, failure_count = service_index.process_image_task(
+        [(b"fake-image", "photo-1", "alpha.jpg")],
+        options={
+            "provider": "ollama",
+            "model": "gpt-4o",
+            "capture_time": "2026-05-02 12:34:56",
+            "compute_embeddings": True,
+            "compute_metadata": True,
+            "compute_quality": True,
+        },
+    )
+
+    assert success_count == 0
+    assert failure_count == 1
+    assert add_calls == [], "nothing must be written to pSQL when the LLM result is unsuccessful"
+
+
+def test_process_image_task_stores_when_no_llm_requested(monkeypatch):
+    """When no LLM analysis is requested, the photo is stored successfully even
+    though there are no LLM results."""
+    fake_config = types.ModuleType("config")
+    fake_config.TEXT_EMBEDDING_MODEL_ID = "text-model"
+    fake_config.logger = _make_logger()
+
+    add_calls = []
+
+    fake_postgre_service = types.ModuleType("service_postgre")
+    fake_postgre_service.add_image = lambda *args, **kwargs: add_calls.append(args)
+
+    fake_server_lifecycle = types.ModuleType("server_lifecycle")
+    fake_server_lifecycle.embed_document = lambda document: [0.1, 0.2, 0.3]
+
+    fake_service_metadata = types.ModuleType("service_metadata")
+    fake_service_metadata.get_analysis_service = lambda: None
+
+    monkeypatch.setitem(sys.modules, "config", fake_config)
+    monkeypatch.setitem(sys.modules, "service_postgre", fake_postgre_service)
+    monkeypatch.setitem(sys.modules, "server_lifecycle", fake_server_lifecycle)
+    monkeypatch.setitem(sys.modules, "service_metadata", fake_service_metadata)
+
+    sys.modules.pop("service_index", None)
+    service_index = importlib.import_module("service_index")
+
+    success_count, failure_count = service_index.process_image_task(
+        [(b"fake-image", "photo-1", "alpha.jpg")],
+        options={
+            "provider": "ollama",
+            "model": "gpt-4o",
+            "capture_time": "2026-05-02 12:34:56",
+            "compute_embeddings": False,
+            "compute_metadata": False,
+            "compute_quality": False,
+        },
+    )
+
+    assert success_count == 1
+    assert failure_count == 0
+    assert len(add_calls) == 1, "photo must be stored when no LLM call is requested"

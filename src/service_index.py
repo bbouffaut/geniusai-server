@@ -377,7 +377,8 @@ def process_image_task(
                 )
             except Exception as e:
                 logger.error(
-                    f"Analysis batch failed — storing base metadata without LLM results: {e}",
+                    f"Analysis batch failed — no LLM results available, "
+                    f"photos will be counted as failed and not stored: {e}",
                     exc_info=True,
                 )
 
@@ -391,6 +392,23 @@ def process_image_task(
                 rating_data = ratings[i] if ratings else None
                 metadata_data = metadata_results[i] if metadata_results else None
 
+                # When an LLM analysis was requested, a failure of that call
+                # (for any reason) must abort the write and count as a failure
+                # so that nothing is persisted to pSQL for this photo.
+                llm_failed = False
+                if compute_metadata and not (metadata_data and metadata_data.success):
+                    llm_failed = True
+                if compute_quality and not (rating_data and rating_data.success):
+                    llm_failed = True
+
+                if llm_failed:
+                    logger.error(
+                        f"LLM analysis failed for {uuid} — not writing to pSQL, "
+                        f"counting as failed processing."
+                    )
+                    failure_count += 1
+                    continue
+
                 main_metadata = _build_base_metadata(uuid, filename, options, extra_metadata=extra_metadata)
 
                 if rating_data and rating_data.success:
@@ -403,8 +421,6 @@ def process_image_task(
                     main_metadata["quality_critique"] = rating_data.critique
                     main_metadata["provider"] = provider
                     main_metadata["model"] = model_name
-                elif compute_quality:
-                    logger.error(f"Quality rating generation failed for {uuid}.")
 
                 if metadata_data and metadata_data.success:
                     if metadata_data.title:
@@ -420,8 +436,6 @@ def process_image_task(
                         main_metadata["provider"] = provider
                     if not main_metadata.get("model"):
                         main_metadata["model"] = model_name
-                elif compute_metadata:
-                    logger.error(f"Metadata generation failed for {uuid}.")
 
                 _store_generation_model_keyword(main_metadata)
 
