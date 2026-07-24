@@ -6,22 +6,20 @@ requires-python = ">=3.12"
 dependencies = [
   "flask",
   "fastmcp",
+  "fastapi",
+  "a2wsgi",
+  "uvicorn",
   "google-genai",
   "lmstudio",
   "numpy",
   "ollama",
-  "open_clip_torch",
   "openai",
-  "pandas",
   "pillow",
   "psycopg[binary]",
-  "psutil",
   "pyinstaller",
   "requests",
-  "rich",
+  "torch",
   "transformers>=4.57.6",
-  "waitress",
-  "chromadb>=1.5.9",
 ]
 
 [tool.uv]

@@ -2,18 +2,16 @@ import os
 import sys
 import json
 import tempfile
-import threading
 from flask import Flask, Request, jsonify, request
-from waitress import serve
 import datetime
 
 # Import modularized components
 from config import (
     DEBUG_IN_FILE,
     DEBUG_IN_FILE_PATH,
+    DEBUG_MODE,
     MCP_ENABLED,
-    MCP_SERVER_HOST,
-    MCP_SERVER_PORT,
+    MCP_PATH,
     POSTGRE_DATABASE_NAME,
     PRELOAD_MODELS,
     SERVER_HOST,
@@ -191,27 +189,58 @@ def handle_internal_server_error(e):
     return jsonify({"error": "Internal Server Error"}), 500
 
 
-def start_mcp_interface():
-    """Launch the MCP HTTP interface in a background daemon thread.
+def create_asgi_app():
+    """Build the single ASGI application that serves both interfaces on one port.
 
-    The REST API's WSGI server (waitress) blocks the main thread, so the MCP
-    interface — which runs its own ASGI/uvicorn HTTP server — is started in a
-    separate thread. Importing mcp_server is deferred until here so the fastmcp
-    dependency is only required when the MCP interface is actually enabled.
+    A FastAPI parent app hosts:
+      * the FastMCP Streamable-HTTP endpoint, registered as a top-level route at
+        ``MCP_PATH`` (e.g. ``/mcp``) when the MCP interface is enabled; and
+      * the existing Flask REST app mounted at ``/`` via a WSGI->ASGI bridge that
+        streams request bodies (so large multipart uploads to /index are not
+        buffered in memory).
+
+    The MCP endpoint is registered as a top-level ``Route`` (not a sub-app mount)
+    so it answers at exactly ``MCP_PATH`` with no trailing-slash redirect — which
+    the MCP Streamable-HTTP client cannot follow mid-session. Its lifespan is
+    propagated to the parent so the MCP session manager starts/stops with the
+    server, and its request-context middleware is re-applied to the parent. The
+    Flask ``/`` mount is registered last so it acts as the catch-all.
     """
-    import mcp_server
+    from fastapi import FastAPI
+    from a2wsgi import WSGIMiddleware
 
-    thread = threading.Thread(
-        target=mcp_server.run_mcp_server,
-        args=(MCP_SERVER_HOST, MCP_SERVER_PORT),
-        name="mcp-interface",
-        daemon=True,
-    )
-    thread.start()
-    logger.info(
-        f"MCP interface enabled at http://{MCP_SERVER_HOST}:{MCP_SERVER_PORT}/mcp"
-    )
-    return thread
+    wsgi_app = WSGIMiddleware(app)
+
+    if MCP_ENABLED:
+        import mcp_server
+
+        mcp_app = mcp_server.build_http_app(path=MCP_PATH)
+        parent = FastAPI(
+            title="geniusai-server",
+            lifespan=mcp_app.lifespan,
+            docs_url=None,
+            redoc_url=None,
+            openapi_url=None,
+        )
+        # Register the MCP transport route(s) at the top level so the endpoint is
+        # reachable at exactly MCP_PATH (no Mount => no trailing-slash redirect).
+        parent.router.routes.extend(mcp_app.routes)
+        # Re-apply FastMCP's request-context middleware so the tool has its context.
+        for mw in mcp_app.user_middleware:
+            parent.add_middleware(mw.cls, *mw.args, **mw.kwargs)
+        parent.mount("/", wsgi_app)
+        logger.info(f"MCP interface mounted at {MCP_PATH} on the main server port")
+    else:
+        parent = FastAPI(
+            title="geniusai-server",
+            docs_url=None,
+            redoc_url=None,
+            openapi_url=None,
+        )
+        parent.mount("/", wsgi_app)
+        logger.info("MCP interface disabled")
+
+    return parent
 
 if __name__ == "__main__":
     logger.info("=" * 60)
@@ -237,9 +266,7 @@ if __name__ == "__main__":
         sys.exit(1)
     logger.info("PostgreSQL initialized")
 
-    should_preload_models = PRELOAD_MODELS and (
-        not args.debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true"
-    )
+    should_preload_models = PRELOAD_MODELS and not args.debug
 
     if should_preload_models:
         logger.info("Preloading embedding model before accepting requests...")
@@ -248,37 +275,36 @@ if __name__ == "__main__":
             logger.warning("Embedding model preload did not complete; semantic features will retry on first use.")
         else:
             logger.info("Embedding model preloaded")
-    
+
     # Mark server as ready for startup scripts
     server_lifecycle.write_ok_file()
     logger.info("Server initialized and ready to accept connections")
-    
+
     # Write PID for lifecycle management
     server_lifecycle.write_pid_file()
 
-    # Start the MCP interface alongside the REST API. Guard against Flask's
-    # debug reloader spawning a second process (which would fight for the port).
-    should_start_mcp = MCP_ENABLED and (
-        not args.debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true"
-    )
-    if should_start_mcp:
-        start_mcp_interface()
-    elif not MCP_ENABLED:
-        logger.info("MCP interface disabled")
+    # Build the single ASGI host that serves the REST API and (optionally) the
+    # MCP interface under MCP_PATH on the same port.
+    asgi_app = create_asgi_app()
 
     try:
-        if args.debug:
-            logger.info(
-                f"Starting Flask development server in debug mode on http://{SERVER_HOST}:{SERVER_PORT}"
-            )
-            app.run(debug=True, host=SERVER_HOST, port=SERVER_PORT)
+        import uvicorn
+
+        logger.info(f"Starting server on http://{SERVER_HOST}:{SERVER_PORT}")
+        if MCP_ENABLED:
+            logger.info(f"MCP interface available at http://{SERVER_HOST}:{SERVER_PORT}{MCP_PATH}")
+        if PRELOAD_MODELS:
+            logger.info("Embedding model preloaded; PostgreSQL initialized")
         else:
-            logger.info(f"Starting production server on http://{SERVER_HOST}:{SERVER_PORT}")
-            if PRELOAD_MODELS:
-                logger.info("Embedding model preloaded; PostgreSQL initialized")
-            else:
-                logger.info("PostgreSQL initialized; AI models will load on first request")
-            serve(app, host=SERVER_HOST, port=SERVER_PORT, threads=4)
+            logger.info("PostgreSQL initialized; AI models will load on first request")
+
+        uvicorn.run(
+            asgi_app,
+            host=SERVER_HOST,
+            port=SERVER_PORT,
+            log_level="debug" if DEBUG_MODE else "info",
+            access_log=DEBUG_MODE,
+        )
     finally:
         logger.info("Shutting down server...")
         server_lifecycle.remove_pid_file()

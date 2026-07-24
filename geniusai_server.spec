@@ -5,7 +5,7 @@ block_cipher = None
 from PyInstaller.utils.hooks import copy_metadata, collect_data_files
 
 # Collect metadata for packages that check their own version at runtime
-datas = [('open_clip', 'open_clip')]
+datas = []
 datas += copy_metadata('tqdm')
 datas += copy_metadata('transformers')
 datas += copy_metadata('tokenizers')
@@ -28,7 +28,7 @@ a = Analysis(
     pathex=['src'],
     binaries=[],
     datas=datas,
-    hiddenimports=['chromadb.telemetry.product.posthog', 'chromadb', 'chromadb.api.rust', 'torch', 'torchvision', 'PIL._imaging', 'mcp_server', 'fastmcp', 'uvicorn'],
+    hiddenimports=['torch', 'PIL._imaging', 'mcp_server', 'fastmcp', 'fastapi', 'a2wsgi', 'uvicorn'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

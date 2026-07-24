@@ -25,8 +25,7 @@ def _load_mcp_server(monkeypatch, search_impl):
     """Import a fresh mcp_server with fake config + service_search installed."""
     fake_config = types.ModuleType("config")
     fake_config.DEFAULT_MIN_PERTINENCE_SCORE = 0.35
-    fake_config.MCP_SERVER_HOST = "127.0.0.1"
-    fake_config.MCP_SERVER_PORT = 8000
+    fake_config.MCP_PATH = "/mcp"
     fake_config.logger = _make_logger()
 
     fake_service_search = types.ModuleType("service_search")
@@ -163,3 +162,16 @@ def test_run_search_validates_limit_bounds(monkeypatch):
 
     with pytest.raises(ValueError):
         mcp_server._run_search(query="lake", limit=0)
+
+
+def test_build_http_app_exposes_mcp_route_at_path(monkeypatch):
+    mcp_server = _load_mcp_server(monkeypatch, lambda *a, **k: [])
+
+    app = mcp_server.build_http_app(path="/mcp")
+
+    # Lifespan must be present so the host app can start the MCP session manager.
+    assert hasattr(app, "lifespan")
+    # The transport endpoint must be a top-level route at exactly "/mcp" (no
+    # sub-mount), so the endpoint answers without a trailing-slash redirect.
+    paths = {getattr(route, "path", None) for route in app.routes}
+    assert "/mcp" in paths

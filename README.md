@@ -58,7 +58,7 @@ The server stores metadata and vectors in PostgreSQL with the `pgvector` extensi
 Database selection is configuration-driven:
 
 - PostgreSQL connection settings and the model cache path belong in `.env.postgre.local`, which is ignored by git. The Makefile uses this file through `LOCAL_DOTENV ?= .env.postgre.local`.
-- The dotenv file supports database settings plus runtime flags such as `GENIUSAI_SERVER_HOST`, `GENIUSAI_SERVER_PORT`, `GENIUSAI_DATA_DIR`, `GENIUSAI_UPLOAD_TEMP_DIR`, `MODEL_CACHE_PATH`, `GENIUSAI_FETCH_MODELS`, `GENIUSAI_PRELOAD_MODELS`, `GENIUSAI_DEBUG`, `GENIUSAI_DEBUG_IN_FILE`, `GENIUSAI_MCP_ENABLED`, `GENIUSAI_MCP_SERVER_HOST`, and `GENIUSAI_MCP_SERVER_PORT`.
+- The dotenv file supports database settings plus runtime flags such as `GENIUSAI_SERVER_HOST`, `GENIUSAI_SERVER_PORT`, `GENIUSAI_DATA_DIR`, `GENIUSAI_UPLOAD_TEMP_DIR`, `MODEL_CACHE_PATH`, `GENIUSAI_FETCH_MODELS`, `GENIUSAI_PRELOAD_MODELS`, `GENIUSAI_DEBUG`, `GENIUSAI_DEBUG_IN_FILE`, `GENIUSAI_MCP_ENABLED`, and `GENIUSAI_MCP_PATH`.
 - `--database-name <name>` uses an explicit database.
 - Switching database is done by passing a different `--database-name`.
 
@@ -152,20 +152,22 @@ search the photo library as a tool. This merges the former standalone
 search service **in-process** instead of over HTTP, so there is no extra network
 hop and no separate process to keep alive.
 
-The MCP interface runs its own HTTP server (Streamable HTTP transport) on a
-dedicated port, alongside the REST API. Clients connect to
-`http://<host>:<port>/mcp`.
+The REST API and the MCP interface are served by a **single ASGI host**
+(`uvicorn`) on **one port**: a FastAPI parent application mounts the existing
+Flask REST app at `/` (via a streaming WSGI→ASGI bridge) and registers the
+FastMCP Streamable-HTTP endpoint at a URL path (default `/mcp`). There is no
+second listening port. MCP clients connect to
+`http://<host>:<GENIUSAI_SERVER_PORT>/mcp`.
 
 Configuration:
 
 - Enabled by default. Disable with `--no-mcp` or `GENIUSAI_MCP_ENABLED=false`.
-- `--mcp-host <host>` / `GENIUSAI_MCP_SERVER_HOST` — bind interface (defaults to the REST `--host`).
-- `--mcp-port <port>` / `GENIUSAI_MCP_SERVER_PORT` — listen port (default `8000`).
+- `--mcp-path <path>` / `GENIUSAI_MCP_PATH` — URL path where MCP is mounted (default `/mcp`).
 
 ```bash
-./run.sh --dotenv .env.postgre.local              # REST on 19819 + MCP on 8000
-./run.sh --dotenv .env.postgre.local --mcp-port 9000
-./run.sh --dotenv .env.postgre.local --no-mcp     # REST only
+./run.sh --dotenv .env.postgre.local                 # REST + MCP both on 19819 (MCP at /mcp)
+./run.sh --dotenv .env.postgre.local --mcp-path /ai-mcp
+./run.sh --dotenv .env.postgre.local --no-mcp        # REST only
 ```
 
 #### `search_photos` tool
@@ -193,7 +195,7 @@ An example MCP client configuration (HTTP transport) is provided in
   "mcpServers": {
     "geniusai-search": {
       "type": "http",
-      "url": "http://127.0.0.1:8000/mcp"
+      "url": "http://127.0.0.1:19819/mcp"
     }
   }
 }

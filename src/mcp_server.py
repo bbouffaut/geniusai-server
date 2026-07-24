@@ -1,13 +1,16 @@
 """MCP (Model Context Protocol) interface for geniusai-server.
 
 This exposes geniusai-server's photo search capability as an MCP tool, served
-over HTTP (Streamable HTTP transport) on a dedicated port alongside the REST
-API. It is the in-process descendant of the standalone geniusai-search-mcp
-project: instead of calling geniusai-server's /search endpoint over HTTP, the
-`search_photos` tool now invokes the search service directly in the same
-process, so there is no network hop and no separate liveness check to perform.
+over the same HTTP port as the REST API under the ``/mcp`` path. It is the
+in-process descendant of the standalone geniusai-search-mcp project: instead of
+calling geniusai-server's /search endpoint over HTTP, the `search_photos` tool
+invokes the search service directly in the same process, so there is no network
+hop and no separate liveness check to perform.
 
-MCP clients connect to http://<MCP_SERVER_HOST>:<MCP_SERVER_PORT>/mcp.
+The MCP ASGI application returned by :func:`build_http_app` is mounted into the
+FastAPI/uvicorn host alongside the (WSGI) Flask REST app, so both interfaces
+share a single listening port. MCP clients connect to
+``http://<host>:<port>/mcp``.
 """
 
 from typing import Any
@@ -15,12 +18,7 @@ from typing import Any
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 
-from config import (
-    DEFAULT_MIN_PERTINENCE_SCORE,
-    MCP_SERVER_HOST,
-    MCP_SERVER_PORT,
-    logger,
-)
+from config import DEFAULT_MIN_PERTINENCE_SCORE, logger
 import service_search
 
 mcp = FastMCP("geniusai-search")
@@ -116,19 +114,29 @@ def search_photos(
         raise ToolError("An internal error occurred") from exc
 
 
-def run_mcp_server(host: str = MCP_SERVER_HOST, port: int = MCP_SERVER_PORT) -> None:
-    """Run the MCP HTTP server (blocking).
+def build_http_app(path: str = "/mcp"):
+    """Build the MCP Streamable-HTTP ASGI application.
 
-    Intended to be launched from a background thread by geniusai_server so it can
-    coexist with the REST API's WSGI server. FastMCP/uvicorn skip installing OS
-    signal handlers when not running in the main thread, so this is thread-safe.
+    The returned Starlette app carries a ``lifespan`` attribute that MUST be
+    propagated to the parent ASGI app (FastAPI) so the MCP session manager is
+    started, exposes its transport endpoint as a top-level ``Route`` at ``path``,
+    and applies a ``RequestContextMiddleware``. The host app registers that route
+    directly (rather than mounting the sub-app) so the endpoint answers at exactly
+    ``path`` with no trailing-slash redirect.
+
+    Host/origin (DNS-rebinding) protection is disabled: the interface inherits
+    the REST API's own network exposure and is intended to be reached directly
+    by MCP clients on the LAN, matching the behaviour of the former standalone
+    server.
     """
-    logger.info(f"Starting MCP interface on http://{host}:{port}/mcp")
-    try:
-        mcp.run(transport="http", host=host, port=port)
-    except Exception as exc:  # noqa: BLE001
-        logger.error(f"MCP interface stopped: {exc}", exc_info=True)
+    return mcp.http_app(
+        path=path,
+        transport="http",
+        host_origin_protection=False,
+    )
 
 
-if __name__ == "__main__":
-    run_mcp_server()
+if __name__ == "__main__":  # pragma: no cover - convenience for standalone runs
+    import uvicorn
+
+    uvicorn.run(build_http_app(path="/mcp"), host="127.0.0.1", port=8000)

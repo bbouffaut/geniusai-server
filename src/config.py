@@ -98,18 +98,11 @@ parser.add_argument(
     help='Disable the MCP interface (only serve the REST API)',
 )
 parser.add_argument(
-    '--mcp-host',
-    dest='mcp_host',
+    '--mcp-path',
+    dest='mcp_path',
     type=str,
-    default=os.environ.get("GENIUSAI_MCP_SERVER_HOST"),
-    help='Host interface to bind the MCP HTTP server to (defaults to --host)',
-)
-parser.add_argument(
-    '--mcp-port',
-    dest='mcp_port',
-    type=int,
-    default=int(os.environ["GENIUSAI_MCP_SERVER_PORT"]) if os.environ.get("GENIUSAI_MCP_SERVER_PORT") else None,
-    help='Port for the MCP HTTP server to listen on (default 8000)',
+    default=os.environ.get("GENIUSAI_MCP_PATH"),
+    help='URL path where the MCP interface is mounted on the main server port (default /mcp)',
 )
 parser.add_argument('--debug', action='store_true', help='Enable debug mode with auto-reloading and debug log level')
 parser.add_argument(
@@ -201,10 +194,11 @@ SERVER_HOST = args.host
 SERVER_PORT = args.port
 
 # --- MCP (Model Context Protocol) interface ---
-# The server can expose an MCP interface alongside the REST API. It runs its own
-# HTTP transport (Streamable HTTP) on a dedicated port; MCP clients connect to
-# http://<host>:<port>/mcp. Enabled by default; disable with --no-mcp or by
-# setting GENIUSAI_MCP_ENABLED to a falsy value.
+# The server can expose an MCP interface alongside the REST API on the SAME
+# listening port, mounted under a URL path (default /mcp). Both interfaces are
+# served by a single ASGI host (uvicorn): a FastAPI parent app mounts the Flask
+# REST app at "/" and the FastMCP app at MCP_PATH. Enabled by default; disable
+# with --no-mcp or by setting GENIUSAI_MCP_ENABLED to a falsy value.
 def _resolve_bool_env(value, default):
     if value is None:
         return default
@@ -215,8 +209,15 @@ if args.mcp_enabled is None:
     MCP_ENABLED = _resolve_bool_env(os.environ.get("GENIUSAI_MCP_ENABLED"), True)
 else:
     MCP_ENABLED = args.mcp_enabled
-MCP_SERVER_HOST = args.mcp_host or SERVER_HOST
-MCP_SERVER_PORT = args.mcp_port if args.mcp_port is not None else 8000
+
+# Normalize to a leading-slash, no-trailing-slash mount path (except root "/").
+_mcp_path = (args.mcp_path or "/mcp").strip()
+if not _mcp_path.startswith("/"):
+    _mcp_path = "/" + _mcp_path
+if len(_mcp_path) > 1:
+    _mcp_path = _mcp_path.rstrip("/")
+MCP_PATH = _mcp_path
+
 
 DATA_DIR = _resolve_data_dir()
 UPLOAD_TEMP_DIR = _resolve_upload_temp_dir(DATA_DIR)

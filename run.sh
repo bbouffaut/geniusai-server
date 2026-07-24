@@ -106,8 +106,7 @@ FETCH_MODELS_FLAG=""
 DEBUG_LEVEL_VALUE="${GENIUSAI_DEBUG_LEVEL:-}"
 DEBUG_IN_FILE_PATH="${GENIUSAI_DEBUG_IN_FILE:-}"
 PRELOAD_MODELS_FLAG="--preload-models"
-MCP_HOST="${GENIUSAI_MCP_SERVER_HOST:-}"
-MCP_PORT="${GENIUSAI_MCP_SERVER_PORT:-}"
+MCP_PATH="${GENIUSAI_MCP_PATH:-}"
 MCP_FLAG=""
 
 if [[ -n "${GENIUSAI_MCP_ENABLED:-}" ]]; then
@@ -232,20 +231,12 @@ while [[ $# -gt 0 ]]; do
       MCP_FLAG="--no-mcp"
       shift
       ;;
-    --mcp-host)
+    --mcp-path)
       if [[ $# -lt 2 ]]; then
-        echo "error: --mcp-host requires a value" >&2
+        echo "error: --mcp-path requires a value" >&2
         exit 1
       fi
-      MCP_HOST="$2"
-      shift 2
-      ;;
-    --mcp-port)
-      if [[ $# -lt 2 ]]; then
-        echo "error: --mcp-port requires a value" >&2
-        exit 1
-      fi
-      MCP_PORT="$2"
+      MCP_PATH="$2"
       shift 2
       ;;
     *)
@@ -326,12 +317,8 @@ if [[ -n "$MCP_FLAG" ]]; then
   cmd+=("$MCP_FLAG")
 fi
 
-if [[ -n "$MCP_HOST" ]]; then
-  cmd+=(--mcp-host "$MCP_HOST")
-fi
-
-if [[ -n "$MCP_PORT" ]]; then
-  cmd+=(--mcp-port "$MCP_PORT")
+if [[ -n "$MCP_PATH" ]]; then
+  cmd+=(--mcp-path "$MCP_PATH")
 fi
 
 exec "${cmd[@]}"
