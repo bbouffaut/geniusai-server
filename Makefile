@@ -12,7 +12,16 @@ TARGET_DB    ?=
 TARGET_MODEL ?=
 DOTENV       ?= $(DOTENV_LOCAL)
 
-.PHONY: dev dev-local dev-debug-in-file prod migrate
+.PHONY: dev dev-local dev-debug-in-file prod migrate clean-appledouble
+
+## Remove macOS AppleDouble sidecar files (._*) that macOS creates on exFAT/
+## network volumes. These binary files break tools (e.g. transformers) that scan
+## and read .py files by directory. Re-run this if you hit a UnicodeDecodeError
+## on a "._<something>.py" file.
+clean-appledouble:
+	@echo "Removing macOS AppleDouble (._*) files..."
+	@find . -name '._*' -type f -delete 2>/dev/null || true
+	@echo "Done."
 
 dev-ssd:
 	KMP_DUPLICATE_LIB_OK=TRUE $(RUN_SCRIPT) --dotenv $(DOTENV_SSD)

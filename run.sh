@@ -6,6 +6,15 @@ SERVER_SCRIPT="${ROOT_DIR}/src/geniusai_server.py"
 
 export KMP_DUPLICATE_LIB_OK=TRUE
 
+# On macOS/exFAT (and network) volumes, macOS creates AppleDouble "._*" sidecar
+# files on copy/write. Binary "._*.py" files inside the venv break libraries that
+# scan and read .py files by directory (e.g. transformers -> UnicodeDecodeError).
+# Prune them from the venv and source tree before starting the server. Scoped to
+# .venv and src to stay fast (skips .git). Skipped when GENIUSAI_SKIP_APPLEDOUBLE_CLEAN is truthy.
+if [[ "$(uname -s)" == "Darwin" && "${GENIUSAI_SKIP_APPLEDOUBLE_CLEAN:-}" != "1" ]]; then
+  find "${ROOT_DIR}/.venv" "${ROOT_DIR}/src" -name '._*' -type f -delete 2>/dev/null || true
+fi
+
 DOTENV_FILE=""
 args=("$@")
 
