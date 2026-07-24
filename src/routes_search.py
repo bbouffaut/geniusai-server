@@ -72,26 +72,7 @@ def _parse_return_metadata(data):
     return True
 
 
-def _project_search_result(result, return_metadata=False):
-    metadata = result.get('metadata')
-    if metadata is None:
-        metadata = {}
-
-    return {
-        "ai_model": result.get("ai_model"),
-        "ai_rundate": result.get("ai_rundate"),
-        "distance": result.get("distance"),
-        "filename": result.get("filename"),
-        "match_type": result.get("match_type"),
-        "pertinence_score": result.get("pertinence_score"),
-        "capture_time": result.get("capture_time") or (
-            metadata.get("capture_time") if isinstance(metadata, dict) else None
-        ),
-        "uuid": result.get("uuid") or (
-            metadata.get("uuid") if isinstance(metadata, dict) else None
-        ),
-        **({"metadata": metadata} if return_metadata else {}),
-    }
+_project_search_result = service_search.project_search_result
 
 
 @search_bp.route('/search', methods=['GET', 'POST'])

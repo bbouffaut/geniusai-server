@@ -58,7 +58,7 @@ The server stores metadata and vectors in PostgreSQL with the `pgvector` extensi
 Database selection is configuration-driven:
 
 - PostgreSQL connection settings and the model cache path belong in `.env.postgre.local`, which is ignored by git. The Makefile uses this file through `LOCAL_DOTENV ?= .env.postgre.local`.
-- The dotenv file supports database settings plus runtime flags such as `GENIUSAI_SERVER_HOST`, `GENIUSAI_SERVER_PORT`, `GENIUSAI_DATA_DIR`, `GENIUSAI_UPLOAD_TEMP_DIR`, `MODEL_CACHE_PATH`, `GENIUSAI_FETCH_MODELS`, `GENIUSAI_PRELOAD_MODELS`, `GENIUSAI_DEBUG`, and `GENIUSAI_DEBUG_IN_FILE`.
+- The dotenv file supports database settings plus runtime flags such as `GENIUSAI_SERVER_HOST`, `GENIUSAI_SERVER_PORT`, `GENIUSAI_DATA_DIR`, `GENIUSAI_UPLOAD_TEMP_DIR`, `MODEL_CACHE_PATH`, `GENIUSAI_FETCH_MODELS`, `GENIUSAI_PRELOAD_MODELS`, `GENIUSAI_DEBUG`, `GENIUSAI_DEBUG_IN_FILE`, `GENIUSAI_MCP_ENABLED`, `GENIUSAI_MCP_SERVER_HOST`, and `GENIUSAI_MCP_SERVER_PORT`.
 - `--database-name <name>` uses an explicit database.
 - Switching database is done by passing a different `--database-name`.
 
@@ -142,6 +142,62 @@ GET /migrate
 Returns the status of the current or most recent migration (`idle` / `running` / `completed` / `failed`). Returns `404` if no migration has ever been started.
 
 Supported embedding model keys are the same ones accepted by `--embedding-model` at server startup (e.g. `qwen3-0.6b`, `bge-m3`).
+
+### MCP interface
+
+In addition to the REST API, the server exposes a **Model Context Protocol (MCP)**
+interface so MCP-aware clients (Claude Desktop, IDE assistants, agents, …) can
+search the photo library as a tool. This merges the former standalone
+`geniusai-search-mcp` project into `geniusai-server`: the MCP tool now calls the
+search service **in-process** instead of over HTTP, so there is no extra network
+hop and no separate process to keep alive.
+
+The MCP interface runs its own HTTP server (Streamable HTTP transport) on a
+dedicated port, alongside the REST API. Clients connect to
+`http://<host>:<port>/mcp`.
+
+Configuration:
+
+- Enabled by default. Disable with `--no-mcp` or `GENIUSAI_MCP_ENABLED=false`.
+- `--mcp-host <host>` / `GENIUSAI_MCP_SERVER_HOST` — bind interface (defaults to the REST `--host`).
+- `--mcp-port <port>` / `GENIUSAI_MCP_SERVER_PORT` — listen port (default `8000`).
+
+```bash
+./run.sh --dotenv .env.postgre.local              # REST on 19819 + MCP on 8000
+./run.sh --dotenv .env.postgre.local --mcp-port 9000
+./run.sh --dotenv .env.postgre.local --no-mcp     # REST only
+```
+
+#### `search_photos` tool
+
+Exposes the same capability as `POST /search`, returning identical fields.
+
+| Argument | Type | Default | Description |
+|----------|------|---------|-------------|
+| `query` | string | `""` | Free-text semantic search term (e.g. "sunset over lake") |
+| `filters` | object | *(none)* | Structured metadata filters, e.g. `{"capture_time": "2026-05", "aperture_f_number": {"lte": 2.8}}` |
+| `min_pertinence_score` | float | `0.35` | Minimum relevance score (0-1) to keep a match |
+| `limit` | int | `300` | Maximum number of results (1-10000) |
+| `return_metadata` | bool | `false` | Include each photo's full stored metadata payload |
+| `uuids` | array | *(none)* | Restrict/re-score the search to these photo UUIDs |
+
+At least one of `query` or `filters` must be non-empty. Each result contains
+`uuid`, `filename`, `capture_time`, `match_type`, `pertinence_score`, `distance`,
+`ai_model`, and `ai_rundate` — plus `metadata` when `return_metadata` is true.
+
+An example MCP client configuration (HTTP transport) is provided in
+[config/mcp-client-config.json](config/mcp-client-config.json):
+
+```json
+{
+  "mcpServers": {
+    "geniusai-search": {
+      "type": "http",
+      "url": "http://127.0.0.1:8000/mcp"
+    }
+  }
+}
+```
 
 ### Models selection
 - is done at the client side

@@ -97,6 +97,17 @@ FETCH_MODELS_FLAG=""
 DEBUG_LEVEL_VALUE="${GENIUSAI_DEBUG_LEVEL:-}"
 DEBUG_IN_FILE_PATH="${GENIUSAI_DEBUG_IN_FILE:-}"
 PRELOAD_MODELS_FLAG="--preload-models"
+MCP_HOST="${GENIUSAI_MCP_SERVER_HOST:-}"
+MCP_PORT="${GENIUSAI_MCP_SERVER_PORT:-}"
+MCP_FLAG=""
+
+if [[ -n "${GENIUSAI_MCP_ENABLED:-}" ]]; then
+  if is_truthy "${GENIUSAI_MCP_ENABLED}"; then
+    MCP_FLAG="--mcp"
+  else
+    MCP_FLAG="--no-mcp"
+  fi
+fi
 
 if [[ -n "${GENIUSAI_FETCH_MODELS:-}" ]] && is_truthy "${GENIUSAI_FETCH_MODELS}"; then
   FETCH_MODELS_FLAG="--fetch-models"
@@ -204,6 +215,30 @@ while [[ $# -gt 0 ]]; do
       MODEL_CACHE_PATH="$2"
       shift 2
       ;;
+    --mcp)
+      MCP_FLAG="--mcp"
+      shift
+      ;;
+    --no-mcp)
+      MCP_FLAG="--no-mcp"
+      shift
+      ;;
+    --mcp-host)
+      if [[ $# -lt 2 ]]; then
+        echo "error: --mcp-host requires a value" >&2
+        exit 1
+      fi
+      MCP_HOST="$2"
+      shift 2
+      ;;
+    --mcp-port)
+      if [[ $# -lt 2 ]]; then
+        echo "error: --mcp-port requires a value" >&2
+        exit 1
+      fi
+      MCP_PORT="$2"
+      shift 2
+      ;;
     *)
       echo "error: unknown argument: $1" >&2
       exit 1
@@ -276,6 +311,18 @@ fi
 
 if [[ -n "$MODEL_CACHE_PATH" ]]; then
   cmd+=(--model-cache-path "$MODEL_CACHE_PATH")
+fi
+
+if [[ -n "$MCP_FLAG" ]]; then
+  cmd+=("$MCP_FLAG")
+fi
+
+if [[ -n "$MCP_HOST" ]]; then
+  cmd+=(--mcp-host "$MCP_HOST")
+fi
+
+if [[ -n "$MCP_PORT" ]]; then
+  cmd+=(--mcp-port "$MCP_PORT")
 fi
 
 exec "${cmd[@]}"

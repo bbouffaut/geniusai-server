@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import tempfile
+import threading
 from flask import Flask, Request, jsonify, request
 from waitress import serve
 import datetime
@@ -10,6 +11,9 @@ import datetime
 from config import (
     DEBUG_IN_FILE,
     DEBUG_IN_FILE_PATH,
+    MCP_ENABLED,
+    MCP_SERVER_HOST,
+    MCP_SERVER_PORT,
     POSTGRE_DATABASE_NAME,
     PRELOAD_MODELS,
     SERVER_HOST,
@@ -186,6 +190,29 @@ def handle_internal_server_error(e):
     logger.error(f"Internal Server Error: {e}")
     return jsonify({"error": "Internal Server Error"}), 500
 
+
+def start_mcp_interface():
+    """Launch the MCP HTTP interface in a background daemon thread.
+
+    The REST API's WSGI server (waitress) blocks the main thread, so the MCP
+    interface — which runs its own ASGI/uvicorn HTTP server — is started in a
+    separate thread. Importing mcp_server is deferred until here so the fastmcp
+    dependency is only required when the MCP interface is actually enabled.
+    """
+    import mcp_server
+
+    thread = threading.Thread(
+        target=mcp_server.run_mcp_server,
+        args=(MCP_SERVER_HOST, MCP_SERVER_PORT),
+        name="mcp-interface",
+        daemon=True,
+    )
+    thread.start()
+    logger.info(
+        f"MCP interface enabled at http://{MCP_SERVER_HOST}:{MCP_SERVER_PORT}/mcp"
+    )
+    return thread
+
 if __name__ == "__main__":
     logger.info("=" * 60)
     logger.info("LrGenius Server starting...")
@@ -228,7 +255,17 @@ if __name__ == "__main__":
     
     # Write PID for lifecycle management
     server_lifecycle.write_pid_file()
-    
+
+    # Start the MCP interface alongside the REST API. Guard against Flask's
+    # debug reloader spawning a second process (which would fight for the port).
+    should_start_mcp = MCP_ENABLED and (
+        not args.debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true"
+    )
+    if should_start_mcp:
+        start_mcp_interface()
+    elif not MCP_ENABLED:
+        logger.info("MCP interface disabled")
+
     try:
         if args.debug:
             logger.info(

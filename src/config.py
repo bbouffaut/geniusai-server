@@ -84,6 +84,33 @@ parser.add_argument(
     help='Port to listen on',
 )
 
+parser.add_argument(
+    '--mcp',
+    dest='mcp_enabled',
+    action='store_true',
+    default=None,
+    help='Expose the Model Context Protocol (MCP) interface alongside the REST API',
+)
+parser.add_argument(
+    '--no-mcp',
+    dest='mcp_enabled',
+    action='store_false',
+    help='Disable the MCP interface (only serve the REST API)',
+)
+parser.add_argument(
+    '--mcp-host',
+    dest='mcp_host',
+    type=str,
+    default=os.environ.get("GENIUSAI_MCP_SERVER_HOST"),
+    help='Host interface to bind the MCP HTTP server to (defaults to --host)',
+)
+parser.add_argument(
+    '--mcp-port',
+    dest='mcp_port',
+    type=int,
+    default=int(os.environ["GENIUSAI_MCP_SERVER_PORT"]) if os.environ.get("GENIUSAI_MCP_SERVER_PORT") else None,
+    help='Port for the MCP HTTP server to listen on (default 8000)',
+)
 parser.add_argument('--debug', action='store_true', help='Enable debug mode with auto-reloading and debug log level')
 parser.add_argument(
     '--debug-level',
@@ -172,6 +199,25 @@ DEBUG_IN_FILE_PATH = (
 DEBUG_IN_FILE = DEBUG_IN_FILE_PATH is not None
 SERVER_HOST = args.host
 SERVER_PORT = args.port
+
+# --- MCP (Model Context Protocol) interface ---
+# The server can expose an MCP interface alongside the REST API. It runs its own
+# HTTP transport (Streamable HTTP) on a dedicated port; MCP clients connect to
+# http://<host>:<port>/mcp. Enabled by default; disable with --no-mcp or by
+# setting GENIUSAI_MCP_ENABLED to a falsy value.
+def _resolve_bool_env(value, default):
+    if value is None:
+        return default
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+if args.mcp_enabled is None:
+    MCP_ENABLED = _resolve_bool_env(os.environ.get("GENIUSAI_MCP_ENABLED"), True)
+else:
+    MCP_ENABLED = args.mcp_enabled
+MCP_SERVER_HOST = args.mcp_host or SERVER_HOST
+MCP_SERVER_PORT = args.mcp_port if args.mcp_port is not None else 8000
+
 DATA_DIR = _resolve_data_dir()
 UPLOAD_TEMP_DIR = _resolve_upload_temp_dir(DATA_DIR)
 LOG_PATH = os.path.join(DATA_DIR, "lrgenius-server.log")

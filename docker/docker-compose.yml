@@ -8,6 +8,7 @@ services:
     restart: unless-stopped
     ports:
       - "19819:19819"
+      - "8000:8000"
     volumes:
       - /mnt/nfs/srv/1-workspace/raspberry20_services/geniuai-server/config:/config:ro
       - /var/tmp:/tmp

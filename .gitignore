@@ -31,3 +31,9 @@ lrgenius-server.pid
 output.log
 cache/
 config/
+._*
+.vscode/
+.venv/
+.pytest_cache/
+.github/
+.claude/

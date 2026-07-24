@@ -1009,3 +1009,31 @@ def group_similar_images(uuids, phash_threshold, time_delta):
     except Exception as e:
         logger.error(f"Error during similarity grouping: {str(e)}")
         raise e
+
+
+def project_search_result(result, return_metadata=False):
+    """Project a raw search_images() result to the canonical search-facing shape.
+
+    Shared by the REST /search route and the MCP search_photos tool so both
+    interfaces return identical fields. When return_metadata is True the stored
+    metadata payload is included under the "metadata" key.
+    """
+    metadata = result.get('metadata')
+    if metadata is None:
+        metadata = {}
+
+    return {
+        "ai_model": result.get("ai_model"),
+        "ai_rundate": result.get("ai_rundate"),
+        "distance": result.get("distance"),
+        "filename": result.get("filename"),
+        "match_type": result.get("match_type"),
+        "pertinence_score": result.get("pertinence_score"),
+        "capture_time": result.get("capture_time") or (
+            metadata.get("capture_time") if isinstance(metadata, dict) else None
+        ),
+        "uuid": result.get("uuid") or (
+            metadata.get("uuid") if isinstance(metadata, dict) else None
+        ),
+        **({"metadata": metadata} if return_metadata else {}),
+    }
