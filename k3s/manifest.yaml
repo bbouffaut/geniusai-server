@@ -1,0 +1,95 @@
+# ---------------------------------------------------------------------------
+# geniusai-server — SINGLE-FILE manifest for Portainer Git deploy.
+# Contains: Namespace + Deployment + Service.
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: rpi20
+  labels:
+    app.kubernetes.io/part-of: rpi20
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: geniusai-server
+  namespace: rpi20
+  labels:
+    app: geniusai-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: geniusai-server
+  template:
+    metadata:
+      labels:
+        app: geniusai-server
+    spec:
+      imagePullSecrets:
+      - name: gitlab-registry
+      containers:
+      - name: geniusai-server
+        image: registry.gitlab.com/skails/geniusai-server:4.2-arm64
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: http
+          containerPort: 19819
+        env:
+        - name: GENIUSAI_DOTENV_FILENAME
+          value: /config/.env.prod
+        volumeMounts:
+        - name: config
+          mountPath: /config
+          readOnly: true
+        - name: tmp
+          mountPath: /tmp
+        resources:
+          requests:
+            cpu: 100m
+            memory: 512Mi
+          limits:
+            cpu: 1
+            memory: 4Gi
+        # App takes ~60s to become ready (PG init + bge-m3 model load) — the
+        # probes MUST wait longer than that, or the liveness probe kills the
+        # container right as it's about to listen (observed crash loop).
+        readinessProbe:
+          tcpSocket:
+            port: 19819
+          initialDelaySeconds: 90
+          periodSeconds: 15
+          failureThreshold: 3
+        livenessProbe:
+          tcpSocket:
+            port: 19819
+          initialDelaySeconds: 90
+          periodSeconds: 30
+          failureThreshold: 3
+      volumes:
+      - name: config
+        hostPath:
+          path: /mnt/nfs/srv/1-workspace/raspberry20_services/geniusai-server/config
+          type: Directory
+      - name: tmp
+        hostPath:
+          path: /var/tmp
+          type: Directory
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: geniusai-server
+  namespace: rpi20
+  labels:
+    app: geniusai-server
+spec:
+  type: LoadBalancer
+  selector:
+    app: geniusai-server
+  ports:
+  - name: http
+    port: 19819
+    targetPort: 19819
