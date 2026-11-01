@@ -34,6 +34,7 @@ from routes_reindex import reindex_bp
 from routes_search import search_bp
 from routes_server import server_bp
 from routes_import import import_bp
+from routes_style_match import style_match_bp
 import service_postgre as postgre_service
 
 
@@ -182,6 +183,7 @@ app.register_blueprint(reindex_bp)
 app.register_blueprint(search_bp)
 app.register_blueprint(server_bp)
 app.register_blueprint(import_bp)
+app.register_blueprint(style_match_bp)
 
 @app.errorhandler(500)
 def handle_internal_server_error(e):
