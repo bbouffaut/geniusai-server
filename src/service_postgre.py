@@ -1530,6 +1530,7 @@ def _ensure_style_refs():
         return
 
     with _connect_to_target() as conn:
+        conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
         conn.execute(
             sql.SQL(
                 """
@@ -1899,7 +1900,7 @@ def query_style_ref_candidates(column, query_embedding, k, filters=None, exclude
         col=sql.Identifier(column),
         where=sql.SQL(" AND ").join(clauses),
     )
-    params = [*params, query_vector, query_vector, int(k)]
+    params = [query_vector, *params, query_vector, int(k)]
 
     with _connect_to_target() as conn:
         rows = conn.execute(query, params).fetchall()
