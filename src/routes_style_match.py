@@ -161,6 +161,21 @@ def style_match_index():
         return jsonify({"error": "Style-match indexing failed", "detail": str(e)}), 500
 
     status_code = 200 if result.get("status") == "processed" else 500
+    if status_code == 200:
+        settings_count = len(develop_settings) if isinstance(develop_settings, dict) else 0
+        logger.info(
+            f"style-match/index: indexed {filename or uuid} "
+            f"(catalog={catalog_id} local_id={meta['lrc_local_id']} "
+            f"render={result.get('render_source')} "
+            f"colour={result.get('has_color_histogram')} "
+            f"desc_emb={result.get('has_description_embedding')} "
+            f"edits={meta['has_edits']} settings={settings_count})"
+        )
+    else:
+        logger.warning(
+            f"style-match/index: not processed for {filename or uuid}: "
+            f"{result.get('error')}"
+        )
     return jsonify(result), status_code
 
 
