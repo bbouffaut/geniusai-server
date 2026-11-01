@@ -244,6 +244,11 @@ STYLE_MATCH_SCORING_MODE = os.environ.get("GENIUSAI_STYLE_MATCH_SCORING_MODE", "
 STYLE_MATCH_CANDIDATE_K = int(os.environ.get("GENIUSAI_STYLE_MATCH_CANDIDATE_K", "200"))
 # GPS distance-decay constant (km) for the location signal.
 STYLE_MATCH_LOC_TAU_KM = float(os.environ.get("GENIUSAI_STYLE_MATCH_LOC_TAU_KM", "50"))
+# Uploaded originals are only inspected for their embedded preview; cap the
+# accepted size so a stray huge file cannot exhaust the pod's memory.
+STYLE_MATCH_MAX_ORIGINAL_BYTES = int(
+    os.environ.get("GENIUSAI_STYLE_MATCH_MAX_ORIGINAL_BYTES", str(200 * 1024 * 1024))
+)
 # Model label recorded on style_ref_photos rows when CLIP embedding succeeds.
 STYLE_MATCH_EMBEDDING_MODEL = "clip-vit-b32"
 

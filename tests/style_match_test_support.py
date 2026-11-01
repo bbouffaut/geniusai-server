@@ -16,5 +16,6 @@ def apply_style_match_config(fake_config):
     fake_config.STYLE_MATCH_EMBEDDING_MODEL = "clip-vit-b32"
     fake_config.STYLE_MATCH_ENABLED = True
     fake_config.STYLE_MATCH_LOC_TAU_KM = 50.0
+    fake_config.STYLE_MATCH_MAX_ORIGINAL_BYTES = 200 * 1024 * 1024
     fake_config.STYLE_MATCH_SCORING_MODE = "linear"
     return fake_config

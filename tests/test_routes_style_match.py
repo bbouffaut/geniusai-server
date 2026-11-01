@@ -31,6 +31,7 @@ def _install_routes_fakes(monkeypatch, index_result=None, search_result=None):
     fake_config = types.ModuleType("config")
     fake_config.STYLE_MATCH_DEFAULT_WEIGHTS = {"sem": 0.5, "desc": 0.3, "color": 0.1, "loc": 0.1}
     fake_config.STYLE_MATCH_EMBEDDING_MODEL = "clip-vit-b32"
+    fake_config.STYLE_MATCH_MAX_ORIGINAL_BYTES = 200 * 1024 * 1024
     fake_config.STYLE_MATCH_SCORING_MODE = "linear"
     fake_config.logger = _make_logger()
 
@@ -38,8 +39,15 @@ def _install_routes_fakes(monkeypatch, index_result=None, search_result=None):
 
     fake_service = types.ModuleType("service_style_match")
 
-    def fake_index_photo(image_bytes, meta, neutral_image_bytes=None, generate_description=True):
-        captured["index"] = {"meta": meta, "neutral": neutral_image_bytes, "generate": generate_description}
+    def fake_index_photo(image_bytes, meta, neutral_image_bytes=None, original_bytes=None,
+                         original_filename=None, generate_description=True):
+        captured["index"] = {
+            "meta": meta,
+            "neutral": neutral_image_bytes,
+            "original": original_bytes,
+            "original_filename": original_filename,
+            "generate": generate_description,
+        }
         return index_result or {"status": "processed", "uuid": meta["uuid"]}
 
     def fake_search_photos(image_bytes, **kwargs):
@@ -103,6 +111,7 @@ def test_index_endpoint_parses_multipart(monkeypatch):
         data={
             "image": (io.BytesIO(_png_bytes()), "current.jpg"),
             "neutral_image": (io.BytesIO(_png_bytes()), "neutral.jpg"),
+            "original": (io.BytesIO(b"RAW-BYTES"), "IMG_1.CR2"),
             "uuid": "abc-123",
             "filename": "IMG_1.jpg",
             "capture_time": "2024-05-12T19:34:00+02:00",
@@ -124,6 +133,7 @@ def test_index_endpoint_parses_multipart(monkeypatch):
     assert meta["has_edits"] is True
     assert meta["develop_settings"] == {"Contrast2012": 25, "LocalAdjustments": [{}]}
     assert captured["index"]["neutral"] == _png_bytes()
+    assert captured["index"]["original"] == b"RAW-BYTES"
     assert captured["index"]["generate"] is False
 
 

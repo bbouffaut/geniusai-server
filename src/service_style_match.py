@@ -33,7 +33,7 @@ from config import (
     STYLE_MATCH_SCORING_MODE,
     logger,
 )
-from style_match import colors, scoring, whitelist
+from style_match import colors, neutral, scoring, whitelist
 
 SIGNALS = ("sem", "desc", "color", "loc")
 
@@ -134,6 +134,8 @@ def index_photo(
     image_bytes,
     meta,
     neutral_image_bytes=None,
+    original_bytes=None,
+    original_filename=None,
     generate_description=True,
 ):
     """Embed and upsert one reference photo.
@@ -144,9 +146,11 @@ def index_photo(
     description, render_source.
 
     `image_bytes` MUST be the current-look render (CLIP); `neutral_image_bytes`
-    the camera/neutral render (HSV histogram). When the neutral render is
-    absent the colour signal is left NULL and backfilled by the next bootstrap
-    run (plan §2.4).
+    the camera/neutral render (HSV histogram). When no neutral render is
+    uploaded, `original_bytes` (the RAW/JPEG original) is inspected here: the
+    RAW's embedded preview or the JPEG itself becomes the neutral render, so
+    the plugin can stay the single ingestion path (plan §2.4). With neither,
+    the colour signal stays NULL and is backfilled later.
     """
     catalog_id = meta.get("catalog_id")
     lrc_local_id = meta.get("lrc_local_id")
@@ -158,10 +162,17 @@ def index_photo(
     if embedding is None:
         return {"status": "error", "error": "CLIP embedding failed"}
 
-    histogram = colors.compute_color_histogram(neutral_image_bytes) if neutral_image_bytes else None
     render_source = meta.get("render_source") or (
         "develop_export" if image_bytes else None
     )
+    if not neutral_image_bytes and original_bytes:
+        neutral_image_bytes, derived_source = neutral.neutral_render_from_original(
+            original_bytes,
+            original_filename or meta.get("filename") or "",
+        )
+        if derived_source:
+            render_source = derived_source
+    histogram = colors.compute_color_histogram(neutral_image_bytes) if neutral_image_bytes else None
 
     description_embedding, description_reused = _description_embedding_for(
         uuid,

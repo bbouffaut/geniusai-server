@@ -139,6 +139,42 @@ def test_index_photo_without_neutral_leaves_histogram_null(monkeypatch):
     assert result["has_color_histogram"] is False
 
 
+def test_index_photo_derives_histogram_from_uploaded_original(monkeypatch):
+    service, fake_lifecycle, fake_postgre, style_store, photo_metadata = _install_style_match_fakes(monkeypatch)
+    fake_lifecycle.embed_image = lambda image_bytes: _unit(1)
+
+    # A fake rawpy module returns an embedded JPEG for the uploaded original.
+    import types as _types
+
+    embedded = _jpeg((10, 10, 10))
+    fake_format = _types.SimpleNamespace(name="JPEG")
+
+    class FakeRaw:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def extract_thumb(self):
+            return _types.SimpleNamespace(data=embedded, format=fake_format)
+
+    fake_rawpy = _types.ModuleType("rawpy")
+    fake_rawpy.imread = lambda stream: FakeRaw()
+    monkeypatch.setitem(sys.modules, "rawpy", fake_rawpy)
+
+    result = service.index_photo(
+        _jpeg((200, 100, 20)),
+        _ref_meta(3, "uuid-3"),
+        original_bytes=b"fake raw",
+        original_filename="IMG_3.CR2",
+    )
+    row = style_store[("test-catalog", 3)]
+    assert result["has_color_histogram"] is True
+    assert row["color_histogram"] is not None
+    assert row["render_source"] == "camera_embedded"
+
+
 def test_description_embedding_reused_from_photo_metadata(monkeypatch):
     service, fake_lifecycle, fake_postgre, style_store, photo_metadata = _install_style_match_fakes(monkeypatch)
     fake_lifecycle.embed_image = lambda image_bytes: _unit(1)

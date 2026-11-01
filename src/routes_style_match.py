@@ -16,6 +16,7 @@ from flask import Blueprint, jsonify, request
 from config import (
     STYLE_MATCH_DEFAULT_WEIGHTS,
     STYLE_MATCH_EMBEDDING_MODEL,
+    STYLE_MATCH_MAX_ORIGINAL_BYTES,
     STYLE_MATCH_SCORING_MODE,
     logger,
 )
@@ -103,6 +104,17 @@ def style_match_index():
         return jsonify({"error": "Missing 'image' file (current-look render)."}), 400
     neutral_image_bytes = _read_file_bytes("neutral_image")
 
+    # Optional original upload: the server extracts the RAW embedded preview
+    # (or uses the JPEG itself) for the neutral HSV histogram, so the plugin
+    # stays the single indexing path (plan §2.4).
+    original_bytes = _read_file_bytes("original")
+    if original_bytes and len(original_bytes) > STYLE_MATCH_MAX_ORIGINAL_BYTES:
+        logger.warning(
+            f"style-match/index: original upload for {request.form.get('uuid')} exceeds "
+            f"{STYLE_MATCH_MAX_ORIGINAL_BYTES} bytes; colour signal skipped."
+        )
+        original_bytes = None
+
     form = request.form
     uuid = form.get("uuid")
     filename = form.get("filename") or ""
@@ -140,6 +152,8 @@ def style_match_index():
             image_bytes,
             meta,
             neutral_image_bytes=neutral_image_bytes,
+            original_bytes=original_bytes,
+            original_filename=form.get("original_filename") or filename,
             generate_description=_coerce_bool(form.get("generate_description"), True),
         )
     except Exception as e:

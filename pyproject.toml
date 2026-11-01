@@ -17,6 +17,7 @@ dependencies = [
   "pillow",
   "psycopg[binary]",
   "pyinstaller",
+  "rawpy",
   "requests",
   "torch",
   "transformers>=4.57.6",
