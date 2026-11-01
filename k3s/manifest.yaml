@@ -31,7 +31,7 @@ spec:
       - name: gitlab-registry
       containers:
       - name: geniusai-server
-        image: registry.gitlab.com/skails/geniusai-server:4.2-arm64
+        image: registry.gitlab.com/skails/geniusai-server:5.0-arm64
         imagePullPolicy: IfNotPresent
         ports:
         - name: http
