@@ -228,11 +228,21 @@ Endpoints (registered next to the existing ones):
 - `GET /style-match/status`, `GET /style-match/health` — counts and the
   render-source mix (`develop_export` | `camera_embedded` | `original`).
 
+**Single ingestion path from Lightroom.** The plugin's *Index for Style Match...*
+task (and the Analyze & Index hook) renders the current look, then uploads the
+photo's **original** file alongside it: the server extracts the RAW embedded
+preview with `rawpy` (or uses the JPEG itself) to compute the neutral HSV
+histogram. No separate bootstrap run is needed. Uploaded originals are capped
+by `GENIUSAI_STYLE_MATCH_MAX_ORIGINAL_BYTES` (default 200 MB) and the plugin can
+skip them via the `styleMatchUploadOriginals` preference. Note that RAW uploads
+are 20-50 MB per photo — if the server sits behind a reverse proxy, raise its
+request-body limit accordingly.
+
 Photos pushed through the existing `/index` flow are mirrored into
 `style_ref_photos` automatically (disable with `GENIUSAI_STYLE_MATCH_ENABLED=false`).
 
-Bootstrap (bulk indexing from the plugin manifest export; runs on YOUR machine,
-uploads over HTTP):
+Optional bulk fallback — manifest + bootstrap script (still supported, useful
+for scripted runs or colour backfills of rows indexed without originals):
 
 ```bash
 PYTHONPATH=src uv run python -m style_match.bootstrap \
@@ -240,10 +250,10 @@ PYTHONPATH=src uv run python -m style_match.bootstrap \
     --catalog my-catalog --batch 8 --concurrency 2
 ```
 
-Per photo it uploads the manifest preview (current look) plus a neutral render
-(RAW embedded JPEG via `rawpy`, or the JPEG original) so the colour signal is
-computed on a consistent basis; re-runs skip unchanged photos
-(`.bootstrap-progress.json`) and the server upserts idempotently.
+Per photo it uploads the manifest preview (current look) plus the neutral
+render derived from the original (RAW embedded JPEG via `rawpy`, or the JPEG
+itself); re-runs skip unchanged photos (`.bootstrap-progress.json`) and the
+server upserts idempotently.
 
 Golden-set evaluation (recall@5 against *apply-worthy* labels, both scoring
 modes, per-signal distributions):
