@@ -211,13 +211,16 @@ def style_match_status():
 
 @style_match_bp.route("/style-match/health", methods=["GET"])
 def style_match_health():
-    import server_lifecycle
+    # server_lifecycle is imported at server startup; reuse it instead of
+    # re-importing (which would pull torch into lightweight contexts).
+    import sys
 
+    lifecycle = sys.modules.get("server_lifecycle")
     health = {
         "status": "ok",
         "embedding_model": STYLE_MATCH_EMBEDDING_MODEL,
-        "clip_model_loaded": server_lifecycle.clip_model is not None,
-        "text_model_loaded": server_lifecycle.model is not None,
+        "clip_model_loaded": bool(getattr(lifecycle, "clip_model", None)) if lifecycle else False,
+        "text_model_loaded": bool(getattr(lifecycle, "model", None)) if lifecycle else False,
     }
     try:
         health["style_refs"] = postgre_service.style_ref_stats()
