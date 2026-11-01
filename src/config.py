@@ -219,6 +219,40 @@ if len(_mcp_path) > 1:
 MCP_PATH = _mcp_path
 
 
+# --- Style Match (Lightroom develop-style transfer) ---
+# CLIP image-embedding model used by the style-match feature. The dimension and
+# image size must stay in sync with the `style_ref_photos.embedding` column
+# (vector(512)) and the CLIP preprocessing in server_lifecycle.
+CLIP_MODEL_ID = os.environ.get("GENIUSAI_CLIP_MODEL", "openai/clip-vit-base-patch32")
+CLIP_EMBEDDING_DIMENSION = 512
+CLIP_IMAGE_SIZE = 224
+# CLIP shares the model cache volume used for the text-embedding model.
+CLIP_MODEL_CACHE_PATH = MODEL_CACHE_PATH
+STYLE_MATCH_ENABLED = _resolve_bool_env(os.environ.get("GENIUSAI_STYLE_MATCH_ENABLED"), True)
+# Hybrid score weights: CLIP topic (sem) + description embedding (desc) +
+# HSV colour histogram (color) + GPS (loc). Renormalized at query time when a
+# signal is unavailable.
+STYLE_MATCH_DEFAULT_WEIGHTS = {
+    "sem": float(os.environ.get("GENIUSAI_STYLE_MATCH_W_SEM", "0.5")),
+    "desc": float(os.environ.get("GENIUSAI_STYLE_MATCH_W_DESC", "0.3")),
+    "color": float(os.environ.get("GENIUSAI_STYLE_MATCH_W_COLOR", "0.1")),
+    "loc": float(os.environ.get("GENIUSAI_STYLE_MATCH_W_LOC", "0.1")),
+}
+# Scoring mode: "linear" weighted sum or "rrf" (weighted reciprocal-rank fusion).
+STYLE_MATCH_SCORING_MODE = os.environ.get("GENIUSAI_STYLE_MATCH_SCORING_MODE", "linear")
+# Candidate generation: union of the CLIP top-K and the description top-K.
+STYLE_MATCH_CANDIDATE_K = int(os.environ.get("GENIUSAI_STYLE_MATCH_CANDIDATE_K", "200"))
+# GPS distance-decay constant (km) for the location signal.
+STYLE_MATCH_LOC_TAU_KM = float(os.environ.get("GENIUSAI_STYLE_MATCH_LOC_TAU_KM", "50"))
+# Uploaded originals are only inspected for their embedded preview; cap the
+# accepted size so a stray huge file cannot exhaust the pod's memory.
+STYLE_MATCH_MAX_ORIGINAL_BYTES = int(
+    os.environ.get("GENIUSAI_STYLE_MATCH_MAX_ORIGINAL_BYTES", str(200 * 1024 * 1024))
+)
+# Model label recorded on style_ref_photos rows when CLIP embedding succeeds.
+STYLE_MATCH_EMBEDDING_MODEL = "clip-vit-b32"
+
+
 DATA_DIR = _resolve_data_dir()
 UPLOAD_TEMP_DIR = _resolve_upload_temp_dir(DATA_DIR)
 LOG_PATH = os.path.join(DATA_DIR, "lrgenius-server.log")

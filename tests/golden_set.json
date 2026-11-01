@@ -1,0 +1,4 @@
+{
+  "_comment": "T0.3 golden set — labels are APPLY-WORTHY matches (photos whose develop settings you would actually apply), not merely the visually closest (plan §3.8). Fill 'queries' with 20-30 entries, then run: PYTHONPATH=src uv run python -m tests.eval_golden --server-url http://<rpi20>:19819",
+  "queries": []
+}

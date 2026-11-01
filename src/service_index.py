@@ -3,6 +3,7 @@ from config import TEXT_EMBEDDING_MODEL_ID, logger
 import service_postgre as postgre_service
 from service_metadata import get_analysis_service
 import server_lifecycle as server_lifecycle
+import service_style_match
 import json
 from datetime import datetime as time
 
@@ -494,6 +495,23 @@ def process_image_task(
                 )
                 postgre_service.add_image(uuid, embedding, main_metadata, embedding_kw=embedding_kw, document=document)
                 success_count += 1
+
+                # Style Match incremental hook (T1.6): mirror the freshly
+                # annotated photo into style_ref_photos so it becomes
+                # comparable immediately. Best effort — never breaks indexing.
+                try:
+                    service_style_match.incremental_style_index(
+                        _image_bytes,
+                        uuid,
+                        filename,
+                        main_metadata,
+                        options=options,
+                        prose_embedding=embedding,
+                    )
+                except Exception as style_error:
+                    logger.warning(
+                        f"Style-match incremental hook failed for {uuid}: {style_error}"
+                    )
 
             except Exception as e:
                 logger.error(f"FAILED to process image {uuid}: {str(e)}", exc_info=True)

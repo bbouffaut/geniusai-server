@@ -205,3 +205,65 @@ An example MCP client configuration (HTTP transport) is provided in
 - is done at the client side
 - Default is ollama -> Needs to have a ollama listening locally on 11434 port
 - Cloud providers can receive their API key per request through `api_key`; `/models` also accepts provider-specific keys such as `openai_apikey`, `gemini_apikey`, `mistral_apikey`, and `anthropic_apikey`. When a key is provided, `/models` asks the provider API for available models. Providers return an empty list when no models are returned.
+
+### Style Match (Lightroom develop-style transfer)
+
+Find the closest photos in your own catalog to an incoming photo and transfer
+their develop settings (style subset only). Score:
+`0.50 · CLIP topic + 0.30 · description embedding + 0.10 · HSV colour + 0.10 · GPS`
+(capture time is stored/displayed, never scored). See
+[src/style_match/WHITELIST.md](src/style_match/WHITELIST.md) for what "Apply"
+transfers (exposure/WB are opt-in; local masks are never transferred).
+
+Endpoints (registered next to the existing ones):
+- `POST /style-match/index` — multipart: `image` (current-look JPEG → CLIP),
+  optional `neutral_image` (camera/neutral render → HSV histogram), `uuid`,
+  `filename`, `capture_time`, `catalog_id`, `lrc_local_id`,
+  `develop_settings` (JSON string), `has_edits`, optional `description`.
+- `POST /style-match/search` — multipart: `image` + optional `neutral_image`,
+  `description`, `top_k`, `weights` (JSON), `filters` (JSON; `has_edits`
+  defaults to true — unedited references are hidden unless asked for),
+  `scoring_mode` (`linear` | `rrf`), `catalog_id` + `lrc_local_id` for
+  self-exclusion.
+- `GET /style-match/status`, `GET /style-match/health` — counts and the
+  render-source mix (`develop_export` | `camera_embedded` | `original`).
+
+**Single ingestion path from Lightroom.** The plugin's *Index for Style Match...*
+task (and the Analyze & Index hook) renders the current look, then uploads the
+photo's **original** file alongside it: the server extracts the RAW embedded
+preview with `rawpy` (or uses the JPEG itself) to compute the neutral HSV
+histogram. No separate bootstrap run is needed. Uploaded originals are capped
+by `GENIUSAI_STYLE_MATCH_MAX_ORIGINAL_BYTES` (default 200 MB) and the plugin can
+skip them via the `styleMatchUploadOriginals` preference. Note that RAW uploads
+are 20-50 MB per photo — if the server sits behind a reverse proxy, raise its
+request-body limit accordingly.
+
+Photos pushed through the existing `/index` flow are mirrored into
+`style_ref_photos` automatically (disable with `GENIUSAI_STYLE_MATCH_ENABLED=false`).
+
+Optional bulk fallback — manifest + bootstrap script (still supported, useful
+for scripted runs or colour backfills of rows indexed without originals):
+
+```bash
+PYTHONPATH=src uv run python -m style_match.bootstrap \
+    --manifest manifest.json --server-url http://<rpi20>:19819 \
+    --catalog my-catalog --batch 8 --concurrency 2
+```
+
+Per photo it uploads the manifest preview (current look) plus the neutral
+render derived from the original (RAW embedded JPEG via `rawpy`, or the JPEG
+itself); re-runs skip unchanged photos (`.bootstrap-progress.json`) and the
+server upserts idempotently.
+
+Golden-set evaluation (recall@5 against *apply-worthy* labels, both scoring
+modes, per-signal distributions):
+
+```bash
+PYTHONPATH=src uv run python tests/eval_golden.py --server-url http://<rpi20>:19819
+```
+
+CLIP benchmark for the ARM memory budget (run on the target):
+
+```bash
+PYTHONPATH=src uv run python -m style_match.bench --images <dir> [--int8]
+```

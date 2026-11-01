@@ -9,6 +9,7 @@ from psycopg.conninfo import conninfo_to_dict, make_conninfo
 from psycopg.types.json import Jsonb
 
 from config import (
+    CLIP_EMBEDDING_DIMENSION,
     DEBUG_LEVEL,
     POSTGRE_DATABASE_NAME,
     POSTGRE_PASSWORD,
@@ -1462,4 +1463,500 @@ def get_db_stats():
         "num_with_phash": stats[0],
         "num_rated_aesthetic": stats[2],
         "num_with_capture_time": stats[1],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Style Match — reference photos (plan §3.2)
+# ---------------------------------------------------------------------------
+# Reference photos live in their own table, keyed by (catalog_id, lrc_local_id)
+# because Lightroom local identifiers are only unique per catalog. The CLIP
+# embedding (topic) and the description embedding (existing Qwen3 pipeline) are
+# separate columns so candidate generation can query both.
+
+_style_refs_initialized = False
+
+STYLE_REF_EMBEDDING_COLUMNS = {
+    "embedding": CLIP_EMBEDDING_DIMENSION,
+    "description_embedding": TEXT_EMBEDDING_DIMENSION,
+}
+
+STYLE_REF_COLUMN_NAMES = [
+    "id",
+    "catalog_id",
+    "lrc_local_id",
+    "uuid",
+    "file_path",
+    "file_name",
+    "capture_time",
+    "latitude",
+    "longitude",
+    "camera_make",
+    "camera_model",
+    "lens",
+    "focal_length_mm",
+    "aperture_f_number",
+    "iso",
+    "description",
+    "color_histogram",
+    "render_source",
+    "develop_settings",
+    "has_edits",
+    "embedding_model",
+    "created_at",
+    "updated_at",
+]
+
+
+def _style_ref_literal(embedding, dimension):
+    if embedding is None:
+        return None
+    vector = np.asarray(embedding, dtype=np.float32).reshape(-1)
+    if vector.shape[0] != dimension:
+        raise ValueError(
+            f"Style-ref embedding dimension mismatch: expected {dimension}, got {vector.shape[0]}"
+        )
+    return "[" + ",".join(f"{float(value):.9g}" for value in vector) + "]"
+
+
+def _ensure_style_refs():
+    """Create the style_ref_photos table and indexes (idempotent, flag-gated).
+
+    Kept separate from _ensure_initialized so a style-ref DDL problem can never
+    break the existing photo_metadata features.
+    """
+    global _style_refs_initialized
+    if _style_refs_initialized:
+        return
+
+    with _connect_to_target() as conn:
+        conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
+        conn.execute(
+            sql.SQL(
+                """
+                CREATE TABLE IF NOT EXISTS style_ref_photos (
+                    id                    BIGSERIAL PRIMARY KEY,
+                    catalog_id            TEXT        NOT NULL,
+                    lrc_local_id          BIGINT      NOT NULL,
+                    uuid                  UUID        NOT NULL,
+                    file_path             TEXT        NOT NULL,
+                    file_name             TEXT        NOT NULL,
+                    capture_time          TIMESTAMPTZ,
+                    latitude              DOUBLE PRECISION,
+                    longitude             DOUBLE PRECISION,
+                    camera_make           TEXT,
+                    camera_model          TEXT,
+                    lens                  TEXT,
+                    focal_length_mm       REAL,
+                    aperture_f_number     REAL,
+                    iso                   INTEGER,
+                    embedding             vector({clip_dim}),
+                    description_embedding vector({text_dim}),
+                    description           TEXT,
+                    color_histogram       REAL[],
+                    render_source         TEXT,
+                    develop_settings      JSONB,
+                    has_edits             BOOLEAN     NOT NULL DEFAULT FALSE,
+                    embedding_model       TEXT        NOT NULL,
+                    created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    UNIQUE (catalog_id, lrc_local_id)
+                )
+                """
+            ).format(
+                clip_dim=sql.Literal(CLIP_EMBEDDING_DIMENSION),
+                text_dim=sql.Literal(TEXT_EMBEDDING_DIMENSION),
+            )
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS style_ref_gps_idx
+            ON style_ref_photos (latitude, longitude)
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS style_ref_has_edits_idx
+            ON style_ref_photos (has_edits)
+            WHERE has_edits
+            """
+        )
+
+    for column in STYLE_REF_EMBEDDING_COLUMNS:
+        try:
+            with _connect_to_target() as conn:
+                conn.execute(
+                    sql.SQL(
+                        """
+                        CREATE INDEX IF NOT EXISTS style_ref_{column}_hnsw_idx
+                        ON style_ref_photos USING hnsw ({column} vector_cosine_ops)
+                        WHERE {column} IS NOT NULL
+                        """
+                    ).format(column=sql.Identifier(column))
+                )
+        except psycopg.Error as e:
+            logger.warning(
+                f"Could not create pgvector HNSW index on style_ref_photos.{column}. "
+                f"Style-match search will still work, but may be slower until the "
+                f"index is created manually: {e}"
+            )
+            try:
+                with _connect_to_target() as conn:
+                    conn.execute(
+                        sql.SQL(
+                            """
+                            CREATE INDEX IF NOT EXISTS style_ref_{column}_ivfflat_idx
+                            ON style_ref_photos USING ivfflat ({column} vector_cosine_ops)
+                            WITH (lists = 100)
+                            WHERE {column} IS NOT NULL
+                            """
+                        ).format(column=sql.Identifier(column))
+                    )
+            except psycopg.Error as fallback_error:
+                logger.warning(
+                    f"Could not create IVFFlat fallback index on style_ref_photos.{column}: "
+                    f"{fallback_error}"
+                )
+
+    _style_refs_initialized = True
+
+
+def _style_ref_filter_clauses(filters):
+    """Build WHERE clauses for style-ref candidate queries.
+
+    filters.has_edits: True -> only edited references (query-time default,
+    plan §2.6), False -> only unedited, None/absent -> no filter. Date / camera
+    / geo filters narrow the candidate set but never enter the score (§2.1).
+    """
+    clauses = []
+    params = []
+    if not filters:
+        return clauses, params
+
+    has_edits = filters.get("has_edits")
+    if has_edits is not None:
+        clauses.append(sql.SQL("has_edits = %s"))
+        params.append(bool(has_edits))
+
+    if filters.get("camera_model"):
+        clauses.append(sql.SQL("camera_model = %s"))
+        params.append(str(filters["camera_model"]))
+
+    date_from = filters.get("date_from")
+    if date_from:
+        clauses.append(sql.SQL("capture_time >= %s"))
+        params.append(date_from)
+
+    date_to = filters.get("date_to")
+    if date_to:
+        clauses.append(sql.SQL("capture_time <= %s"))
+        params.append(date_to)
+
+    latitude = filters.get("lat")
+    longitude = filters.get("lon")
+    radius_km = filters.get("radius_km")
+    if latitude is not None and longitude is not None and radius_km:
+        # Bounding-box prefilter in degrees; the exact haversine score is
+        # applied per candidate in the re-rank.
+        lat_delta = float(radius_km) / 111.32
+        lon_scale = 111.32 * max(abs(float(latitude)) * 0.017453292519943295, 0.01)
+        lon_delta = min(float(radius_km) / lon_scale, 180.0)
+        clauses.append(sql.SQL("latitude BETWEEN %s AND %s AND longitude BETWEEN %s AND %s"))
+        params.extend(
+            [
+                float(latitude) - lat_delta,
+                float(latitude) + lat_delta,
+                float(longitude) - lon_delta,
+                float(longitude) + lon_delta,
+            ]
+        )
+
+    return clauses, params
+
+
+def upsert_style_ref(
+    catalog_id,
+    lrc_local_id,
+    uuid,
+    file_path,
+    file_name,
+    embedding=None,
+    description_embedding=None,
+    capture_time=None,
+    latitude=None,
+    longitude=None,
+    camera_make=None,
+    camera_model=None,
+    lens=None,
+    focal_length_mm=None,
+    aperture_f_number=None,
+    iso=None,
+    description=None,
+    color_histogram=None,
+    render_source=None,
+    develop_settings=None,
+    has_edits=False,
+    embedding_model="clip-vit-b32",
+):
+    """Insert or update one style reference photo; idempotent upsert.
+
+    Vector/histogram/description values are COALESCEd so an incremental push
+    without a neutral render cannot erase a previously computed histogram.
+    """
+    _ensure_style_refs()
+    embedding_value = _style_ref_literal(embedding, CLIP_EMBEDDING_DIMENSION)
+    description_value = _style_ref_literal(description_embedding, TEXT_EMBEDDING_DIMENSION)
+    if color_histogram is not None:
+        color_histogram = [float(value) for value in color_histogram]
+
+    with _connect_to_target() as conn:
+        conn.execute(
+            """
+            INSERT INTO style_ref_photos (
+                catalog_id, lrc_local_id, uuid, file_path, file_name,
+                capture_time, latitude, longitude, camera_make, camera_model,
+                lens, focal_length_mm, aperture_f_number, iso,
+                embedding, description_embedding, description,
+                color_histogram, render_source, develop_settings,
+                has_edits, embedding_model, updated_at
+            )
+            VALUES (
+                %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s,
+                %s, %s, %s, %s,
+                %s::vector, %s::vector, %s,
+                %s, %s, %s,
+                %s, %s, now()
+            )
+            ON CONFLICT (catalog_id, lrc_local_id) DO UPDATE SET
+                uuid = EXCLUDED.uuid,
+                file_path = EXCLUDED.file_path,
+                file_name = EXCLUDED.file_name,
+                capture_time = EXCLUDED.capture_time,
+                latitude = EXCLUDED.latitude,
+                longitude = EXCLUDED.longitude,
+                camera_make = EXCLUDED.camera_make,
+                camera_model = EXCLUDED.camera_model,
+                lens = EXCLUDED.lens,
+                focal_length_mm = EXCLUDED.focal_length_mm,
+                aperture_f_number = EXCLUDED.aperture_f_number,
+                iso = EXCLUDED.iso,
+                embedding = COALESCE(EXCLUDED.embedding, style_ref_photos.embedding),
+                description_embedding = COALESCE(EXCLUDED.description_embedding, style_ref_photos.description_embedding),
+                description = COALESCE(EXCLUDED.description, style_ref_photos.description),
+                color_histogram = COALESCE(EXCLUDED.color_histogram, style_ref_photos.color_histogram),
+                render_source = COALESCE(EXCLUDED.render_source, style_ref_photos.render_source),
+                develop_settings = COALESCE(EXCLUDED.develop_settings, style_ref_photos.develop_settings),
+                has_edits = EXCLUDED.has_edits,
+                embedding_model = EXCLUDED.embedding_model,
+                updated_at = now()
+            """,
+            (
+                catalog_id,
+                int(lrc_local_id),
+                str(uuid),
+                file_path,
+                file_name,
+                capture_time,
+                latitude,
+                longitude,
+                camera_make,
+                camera_model,
+                lens,
+                focal_length_mm,
+                aperture_f_number,
+                iso,
+                embedding_value,
+                description_value,
+                description,
+                color_histogram,
+                render_source,
+                Jsonb(develop_settings) if develop_settings is not None else None,
+                bool(has_edits),
+                embedding_model,
+            ),
+        )
+
+
+def _style_ref_row_to_dict(row):
+    return {
+        "id": row[0],
+        "catalog_id": row[1],
+        "lrc_local_id": row[2],
+        "uuid": str(row[3]) if row[3] is not None else None,
+        "file_path": row[4],
+        "file_name": row[5],
+        "capture_time": row[6].isoformat() if row[6] is not None else None,
+        "latitude": row[7],
+        "longitude": row[8],
+        "camera_make": row[9],
+        "camera_model": row[10],
+        "lens": row[11],
+        "focal_length_mm": row[12],
+        "aperture_f_number": row[13],
+        "iso": row[14],
+        "description": row[15],
+        "color_histogram": row[16],
+        "render_source": row[17],
+        "develop_settings": row[18],
+        "has_edits": row[19],
+        "embedding_model": row[20],
+        "created_at": row[21].isoformat() if row[21] is not None else None,
+        "updated_at": row[22].isoformat() if row[22] is not None else None,
+    }
+
+
+def _style_ref_select_columns():
+    return sql.SQL(", ").join(
+        [sql.Identifier(col) for col in STYLE_REF_COLUMN_NAMES]
+        + [
+            sql.SQL("embedding::text"),
+            sql.SQL("description_embedding::text"),
+        ]
+    )
+
+
+def get_style_ref_by_lrc(catalog_id, lrc_local_id):
+    """Return one style-ref row (dict) or None."""
+    _ensure_style_refs()
+    with _connect_to_target() as conn:
+        row = conn.execute(
+            sql.SQL(
+                """
+                SELECT {columns}
+                FROM style_ref_photos
+                WHERE catalog_id = %s AND lrc_local_id = %s
+                """
+            ).format(columns=_style_ref_select_columns()),
+            (catalog_id, int(lrc_local_id)),
+        ).fetchone()
+    if not row:
+        return None
+    result = _style_ref_row_to_dict(row)
+    result["embedding"] = _embedding_from_text(row[23])
+    result["description_embedding"] = _embedding_from_text(row[24])
+    return result
+
+
+def get_style_ref_rows(ids):
+    """Return {id: row_dict} for the given style_ref_photos primary keys."""
+    _ensure_style_refs()
+    ids = [int(id_) for id_ in (ids or []) if id_ is not None]
+    if not ids:
+        return {}
+    with _connect_to_target() as conn:
+        rows = conn.execute(
+            sql.SQL(
+                """
+                SELECT {columns}
+                FROM style_ref_photos
+                WHERE id = ANY(%s)
+                """
+            ).format(columns=_style_ref_select_columns()),
+            (ids,),
+        ).fetchall()
+    results = {}
+    for row in rows:
+        result = _style_ref_row_to_dict(row)
+        result["embedding"] = _embedding_from_text(row[23])
+        result["description_embedding"] = _embedding_from_text(row[24])
+        results[row[0]] = result
+    return results
+
+
+def query_style_ref_candidates(column, query_embedding, k, filters=None, exclude=None):
+    """Top-k style-ref candidates by cosine similarity on one embedding column.
+
+    column: "embedding" (CLIP, 50% signal) or "description_embedding" (Qwen3,
+    30% signal). Rows with a NULL in that column cannot be matched by it.
+    exclude: optional (catalog_id, lrc_local_id) tuple for self-exclusion.
+
+    Returns a list of row dicts, best first, each carrying "similarity"
+    (1 - cosine distance) for the queried column under the key
+    "<column>_similarity".
+    """
+    _ensure_style_refs()
+    if column not in STYLE_REF_EMBEDDING_COLUMNS:
+        raise ValueError(f"Unknown style-ref embedding column: {column}")
+    dimension = STYLE_REF_EMBEDDING_COLUMNS[column]
+    query_vector = _style_ref_literal(query_embedding, dimension)
+
+    clauses, params = _style_ref_filter_clauses(filters)
+    clauses.append(sql.SQL("{col} IS NOT NULL").format(col=sql.Identifier(column)))
+    if exclude and exclude[0] is not None and exclude[1] is not None:
+        clauses.append(sql.SQL("NOT (catalog_id = %s AND lrc_local_id = %s)"))
+        params.extend([str(exclude[0]), int(exclude[1])])
+
+    query = sql.SQL(
+        """
+        SELECT {columns}, 1 - ({col} <=> %s::vector) AS similarity
+        FROM style_ref_photos
+        WHERE {where}
+        ORDER BY {col} <=> %s::vector
+        LIMIT %s
+        """
+    ).format(
+        columns=_style_ref_select_columns(),
+        col=sql.Identifier(column),
+        where=sql.SQL(" AND ").join(clauses),
+    )
+    params = [query_vector, *params, query_vector, int(k)]
+
+    with _connect_to_target() as conn:
+        rows = conn.execute(query, params).fetchall()
+
+    candidates = []
+    for row in rows:
+        candidate = _style_ref_row_to_dict(row)
+        similarity = row[25]
+        candidate["similarity"] = float(similarity) if similarity is not None else None
+        if column == "embedding":
+            candidate["sem"] = candidate["similarity"]
+        else:
+            candidate["desc"] = candidate["similarity"]
+        candidates.append(candidate)
+    return candidates
+
+
+def delete_style_ref(catalog_id, lrc_local_id):
+    """Remove one style reference photo (used when the catalog row is gone)."""
+    _ensure_style_refs()
+    with _connect_to_target() as conn:
+        conn.execute(
+            "DELETE FROM style_ref_photos WHERE catalog_id = %s AND lrc_local_id = %s",
+            (catalog_id, int(lrc_local_id)),
+        )
+
+
+def style_ref_stats():
+    """Counts for /style-match/health (rows, edited share, render-source mix)."""
+    _ensure_style_refs()
+    with _connect_to_target() as conn:
+        stats = conn.execute(
+            """
+            SELECT
+                count(*) AS total,
+                count(*) FILTER (WHERE has_edits) AS edited,
+                count(*) FILTER (WHERE embedding IS NOT NULL) AS with_clip,
+                count(*) FILTER (WHERE description_embedding IS NOT NULL) AS with_desc,
+                count(*) FILTER (WHERE color_histogram IS NOT NULL) AS with_color,
+                count(*) FILTER (WHERE render_source = 'develop_export') AS render_develop_export,
+                count(*) FILTER (WHERE render_source = 'camera_embedded') AS render_camera_embedded,
+                count(*) FILTER (WHERE render_source = 'original') AS render_original,
+                count(DISTINCT catalog_id) AS catalogs
+            FROM style_ref_photos
+            """
+        ).fetchone()
+    return {
+        "total": stats[0],
+        "edited": stats[1],
+        "with_clip_embedding": stats[2],
+        "with_description_embedding": stats[3],
+        "with_color_histogram": stats[4],
+        "render_source_mix": {
+            "develop_export": stats[5],
+            "camera_embedded": stats[6],
+            "original": stats[7],
+        },
+        "catalogs": stats[8],
     }

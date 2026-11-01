@@ -23,6 +23,9 @@ def test_process_image_task_stores_search_fields(monkeypatch):
     fake_config = types.ModuleType("config")
     fake_config.TEXT_EMBEDDING_MODEL_ID = "text-model"
     fake_config.logger = _make_logger()
+    from style_match_test_support import apply_style_match_config
+
+    apply_style_match_config(fake_config)
 
     captured_add_calls = []
 
@@ -114,6 +117,9 @@ def test_process_image_task_stores_capture_time_contract_field(monkeypatch):
     fake_config = types.ModuleType("config")
     fake_config.TEXT_EMBEDDING_MODEL_ID = "text-model"
     fake_config.logger = _make_logger()
+    from style_match_test_support import apply_style_match_config
+
+    apply_style_match_config(fake_config)
 
     captured_add_calls = []
 
@@ -185,6 +191,9 @@ def test_process_image_task_stores_client_and_generated_metadata_together(monkey
     fake_config = types.ModuleType("config")
     fake_config.TEXT_EMBEDDING_MODEL_ID = "text-model"
     fake_config.logger = _make_logger()
+    from style_match_test_support import apply_style_match_config
+
+    apply_style_match_config(fake_config)
 
     captured_calls = []
 
@@ -252,6 +261,9 @@ def test_process_image_task_does_not_extract_exif_from_image_bytes(monkeypatch):
     fake_config = types.ModuleType("config")
     fake_config.TEXT_EMBEDDING_MODEL_ID = "text-model"
     fake_config.logger = _make_logger()
+    from style_match_test_support import apply_style_match_config
+
+    apply_style_match_config(fake_config)
 
     records = {}
 
@@ -316,6 +328,9 @@ def test_process_image_task_stores_metadata_when_embedding_generation_fails(monk
     fake_config = types.ModuleType("config")
     fake_config.TEXT_EMBEDDING_MODEL_ID = "text-model"
     fake_config.logger = _make_logger()
+    from style_match_test_support import apply_style_match_config
+
+    apply_style_match_config(fake_config)
 
     records = {}
 
@@ -399,6 +414,9 @@ def test_process_image_task_stores_document_when_embedding_generation_fails(monk
     fake_config = types.ModuleType("config")
     fake_config.TEXT_EMBEDDING_MODEL_ID = "text-model"
     fake_config.logger = _make_logger()
+    from style_match_test_support import apply_style_match_config
+
+    apply_style_match_config(fake_config)
 
     stored_calls = []
 
@@ -475,6 +493,9 @@ def test_process_image_task_stores_embedding_and_document_on_success(monkeypatch
     fake_config = types.ModuleType("config")
     fake_config.TEXT_EMBEDDING_MODEL_ID = "text-model"
     fake_config.logger = _make_logger()
+    from style_match_test_support import apply_style_match_config
+
+    apply_style_match_config(fake_config)
 
     stored_calls = []
 
@@ -550,6 +571,9 @@ def test_process_image_task_counts_failure_when_analyze_batch_raises(monkeypatch
     fake_config = types.ModuleType("config")
     fake_config.TEXT_EMBEDDING_MODEL_ID = "text-model"
     fake_config.logger = _make_logger()
+    from style_match_test_support import apply_style_match_config
+
+    apply_style_match_config(fake_config)
 
     add_calls = []
 
@@ -597,6 +621,9 @@ def test_process_image_task_counts_failure_when_llm_result_unsuccessful(monkeypa
     fake_config = types.ModuleType("config")
     fake_config.TEXT_EMBEDDING_MODEL_ID = "text-model"
     fake_config.logger = _make_logger()
+    from style_match_test_support import apply_style_match_config
+
+    apply_style_match_config(fake_config)
 
     add_calls = []
 
@@ -654,6 +681,9 @@ def test_process_image_task_stores_when_no_llm_requested(monkeypatch):
     fake_config = types.ModuleType("config")
     fake_config.TEXT_EMBEDDING_MODEL_ID = "text-model"
     fake_config.logger = _make_logger()
+    from style_match_test_support import apply_style_match_config
+
+    apply_style_match_config(fake_config)
 
     add_calls = []
 

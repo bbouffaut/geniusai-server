@@ -28,6 +28,9 @@ def _install_postgre_config(monkeypatch):
     fake_config.POSTGRE_USER = None
     fake_config.TEXT_EMBEDDING_DIMENSION = 2
     fake_config.logger = _make_logger()
+    from style_match_test_support import apply_style_match_config
+
+    apply_style_match_config(fake_config)
 
     monkeypatch.setitem(sys.modules, "config", fake_config)
     sys.modules.pop("service_postgre", None)

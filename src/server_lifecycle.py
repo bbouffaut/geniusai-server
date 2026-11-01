@@ -1,7 +1,11 @@
+import io
 import os
 import time
 import signal
 from config import (
+    CLIP_IMAGE_SIZE,
+    CLIP_MODEL_CACHE_PATH,
+    CLIP_MODEL_ID,
     EMBEDDING_MODEL_KEY,
     FETCH_MODELS,
     MODEL_CACHE_PATH,
@@ -35,6 +39,12 @@ IDLE_UNLOAD_SECONDS = 30 * 60  # 30 minutes
 _last_used = None
 _model_lock = threading.RLock()
 _unloader_thread = None
+
+# CLIP image-embedding model (Style Match) — lazily loaded like the text model.
+clip_model = None
+clip_processor = None
+_clip_last_used = None
+_clip_lock = threading.RLock()
 
 _download_status = {
     "status": "idle",
@@ -260,6 +270,8 @@ def _idle_unloader_loop():
             try:
                 if _needs_unload():
                     unload_model()
+                if _clip_needs_unload():
+                    unload_clip_model()
             except Exception:
                 logger.exception("Error checking/unloading model in background thread")
     finally:
@@ -403,6 +415,137 @@ def get_tokenizer():
     load_model()
     _ensure_unloader_thread()
     return tokenizer
+
+# ---------------------------------------------------------------------------
+# CLIP image embeddings (Style Match)
+# The CLIP model is loaded lazily and unloaded on the same idle schedule as the
+# text-embedding model to respect the 8 GB memory budget on the RPi.
+# ---------------------------------------------------------------------------
+
+def _clip_snapshot_download(**kwargs):
+    if CLIP_MODEL_CACHE_PATH:
+        kwargs["cache_dir"] = CLIP_MODEL_CACHE_PATH
+    return snapshot_download(repo_id=CLIP_MODEL_ID, **kwargs)
+
+
+def _set_clip_last_used():
+    global _clip_last_used
+    _clip_last_used = datetime.datetime.utcnow()
+
+
+def _clip_needs_unload():
+    if clip_model is None or _clip_last_used is None:
+        return False
+    delta = datetime.datetime.utcnow() - _clip_last_used
+    return delta.total_seconds() >= IDLE_UNLOAD_SECONDS
+
+
+def load_clip_model():
+    """Load the CLIP image model (idempotent). Returns True on success."""
+    global clip_model, clip_processor
+    with _clip_lock:
+        if clip_model is not None:
+            _set_clip_last_used()
+            return True
+        try:
+            cached_dir = _clip_snapshot_download(local_files_only=not FETCH_MODELS)
+            from transformers import CLIPImageProcessor, CLIPModel
+
+            processor = CLIPImageProcessor.from_pretrained(cached_dir)
+            model_obj = CLIPModel.from_pretrained(cached_dir)
+            try:
+                model_obj.to(TORCH_DEVICE)
+            except Exception as e:
+                logger.warning(f"Failed to move CLIP model to {TORCH_DEVICE}: {e}.")
+            model_obj.eval()
+            clip_model = model_obj
+            clip_processor = processor
+            _set_clip_last_used()
+            logger.info(f"Loaded CLIP model: {CLIP_MODEL_ID} (device={TORCH_DEVICE})")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to load CLIP model {CLIP_MODEL_ID}: {e}", exc_info=True)
+            clip_model = None
+            clip_processor = None
+            return False
+
+
+def unload_clip_model():
+    """Unload the CLIP model to free memory (idle schedule)."""
+    global clip_model, clip_processor
+    with _clip_lock:
+        if clip_model is None and clip_processor is None:
+            return
+        logger.info("Unloading CLIP model due to inactivity...")
+        try:
+            try:
+                if hasattr(clip_model, "to"):
+                    clip_model.to("cpu")
+            except Exception:
+                pass
+            clip_model = None
+            clip_processor = None
+            gc.collect()
+            logger.info("Unloaded CLIP model.")
+        except Exception as e:
+            logger.warning(f"Error while unloading CLIP model: {e}")
+
+
+def get_clip_model():
+    """Return the CLIP model, loading it lazily if needed (None on failure)."""
+    if load_clip_model():
+        _ensure_unloader_thread()
+        return clip_model
+    return None
+
+
+def embed_image(image_bytes):
+    """Embed one image (current-look render) into an L2-normalized CLIP vector.
+
+    Returns a flat numpy array of CLIP_EMBEDDING_DIMENSION floats, or None on
+    failure. Preprocessing is the standard CLIP transform (resize + center
+    crop + rescale/normalize) applied by the CLIPImageProcessor.
+    """
+    if not image_bytes:
+        return None
+    model_obj = get_clip_model()
+    if model_obj is None or clip_processor is None:
+        logger.error("CLIP model not initialized; cannot embed image.")
+        return None
+
+    try:
+        from PIL import Image
+
+        image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    except Exception as e:
+        logger.error(f"Failed to decode image for CLIP embedding: {e}")
+        return None
+
+    device = TORCH_DEVICE if model_obj.device.type == TORCH_DEVICE else str(model_obj.device)
+
+    def _run_inference(target_device):
+        inputs = clip_processor(images=image, return_tensors="pt").to(target_device)
+        with torch.no_grad():
+            features = model_obj.get_image_features(**inputs)
+            return F.normalize(features, p=2, dim=-1).squeeze(0).cpu().numpy()
+
+    try:
+        result = _run_inference(device)
+        _set_clip_last_used()
+        return result
+    except Exception as e:
+        if "out of memory" in str(e).lower() or "mps" in str(e).lower():
+            logger.warning(f"CLIP inference on {device} failed ({e}), retrying on CPU.")
+            try:
+                result = _run_inference("cpu")
+                _set_clip_last_used()
+                return result
+            except Exception as cpu_e:
+                logger.error(f"CLIP CPU fallback failed: {cpu_e}", exc_info=True)
+                return None
+        logger.error(f"Failed to embed image with CLIP: {e}", exc_info=True)
+        return None
+
 
 def write_pid_file():
     with open(PID_FILE_PATH, "w") as f:
