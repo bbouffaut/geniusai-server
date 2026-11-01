@@ -16,6 +16,7 @@ from config import (
     PRELOAD_MODELS,
     SERVER_HOST,
     SERVER_PORT,
+    STYLE_MATCH_ENABLED,
     UPLOAD_TEMP_DIR,
     args,
     logger,
@@ -277,6 +278,16 @@ if __name__ == "__main__":
             logger.warning("Embedding model preload did not complete; semantic features will retry on first use.")
         else:
             logger.info("Embedding model preloaded")
+
+        # CLIP is needed by Style Match; preload (and, with --fetch-models,
+        # download) it into the same model cache volume so the first request
+        # does not pay the load/download cost on the RPi.
+        if STYLE_MATCH_ENABLED:
+            logger.info("Preloading CLIP model for Style Match...")
+            if server_lifecycle.get_clip_model() is None:
+                logger.warning("CLIP model preload did not complete; style-match will retry on first request.")
+            else:
+                logger.info("CLIP model preloaded")
 
     # Mark server as ready for startup scripts
     server_lifecycle.write_ok_file()
