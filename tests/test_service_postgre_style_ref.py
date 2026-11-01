@@ -143,6 +143,19 @@ def test_style_ref_roundtrip(monkeypatch):
     )
     stats = service_postgre.style_ref_stats()
     assert stats["total"] >= 2
+
+    # Regression guard: the HNSW indexes must actually exist. A quoted
+    # identifier in the index NAME used to fail the DDL silently.
+    with service_postgre._connect_to_target() as conn:
+        index_rows = conn.execute(
+            """
+            SELECT indexname, indexdef FROM pg_indexes
+            WHERE tablename = 'style_ref_photos'
+            """
+        ).fetchall()
+    index_names = {row[0] for row in index_rows}
+    assert "style_ref_embedding_hnsw_idx" in index_names, index_names
+    assert "style_ref_description_embedding_hnsw_idx" in index_names, index_names
     rows = service_postgre.get_style_ref_rows([c["id"] for c in everything])
     assert rows
 

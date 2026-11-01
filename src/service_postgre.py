@@ -1583,16 +1583,20 @@ def _ensure_style_refs():
         )
 
     for column in STYLE_REF_EMBEDDING_COLUMNS:
+        # The index NAME must be a plain identifier: interpolating
+        # sql.Identifier into the name string renders quoted text
+        # (style_ref_"embedding"_hnsw_idx) and the DDL fails with a syntax error.
+        hnsw_name = "style_ref_%s_hnsw_idx" % column
         try:
             with _connect_to_target() as conn:
                 conn.execute(
                     sql.SQL(
                         """
-                        CREATE INDEX IF NOT EXISTS style_ref_{column}_hnsw_idx
-                        ON style_ref_photos USING hnsw ({column} vector_cosine_ops)
-                        WHERE {column} IS NOT NULL
+                        CREATE INDEX IF NOT EXISTS {idx}
+                        ON style_ref_photos USING hnsw ({col} vector_cosine_ops)
+                        WHERE {col} IS NOT NULL
                         """
-                    ).format(column=sql.Identifier(column))
+                    ).format(idx=sql.Identifier(hnsw_name), col=sql.Identifier(column))
                 )
         except psycopg.Error as e:
             logger.warning(
@@ -1601,16 +1605,17 @@ def _ensure_style_refs():
                 f"index is created manually: {e}"
             )
             try:
+                ivfflat_name = "style_ref_%s_ivfflat_idx" % column
                 with _connect_to_target() as conn:
                     conn.execute(
                         sql.SQL(
                             """
-                            CREATE INDEX IF NOT EXISTS style_ref_{column}_ivfflat_idx
-                            ON style_ref_photos USING ivfflat ({column} vector_cosine_ops)
+                            CREATE INDEX IF NOT EXISTS {idx}
+                            ON style_ref_photos USING ivfflat ({col} vector_cosine_ops)
                             WITH (lists = 100)
-                            WHERE {column} IS NOT NULL
+                            WHERE {col} IS NOT NULL
                             """
-                        ).format(column=sql.Identifier(column))
+                        ).format(idx=sql.Identifier(ivfflat_name), col=sql.Identifier(column))
                     )
             except psycopg.Error as fallback_error:
                 logger.warning(
